@@ -20,8 +20,7 @@ async def wiki(q: str, lookup = None):
         print("Searching for", [q, lookup], flush=True)
         q = q.strip("\n '.")
         pages = await fetch(f"https://en.wikipedia.org/w/api.php?format=json&action=query&prop=extracts&exintro&explaintext&redirects=1&titles={q}&origin=*", "query.pages")
-        extract = list(pages.values())[0]["extract"][:280]
-        return extract
+        return list(pages.values())[0]["extract"][:280]
     except:
         return "No results (try differently)"
 
@@ -34,7 +33,7 @@ async def calc(expr: str):
     """
     # in expr remove everything but numbers, operators, and brackets
     import re
-    expr = str(expr)
+    expr = expr
     original_expr = expr
     expr = re.sub(r"[^0-9\+\-\*\/\(\)\.]", "", expr)
 
@@ -304,9 +303,7 @@ async def eval_or_acc(last_line, code_env, acc):
         if acc is not None:
             last_line = acc + last_line
         value = await eval_or_timeout(last_line, code_env)
-        if last_line.endswith('"""'):
-            return "", None
-        return str(value), None
+        return ("", None) if last_line.endswith('"""') else (str(value), None)
     except Exception as e:
         if "unmatched" in str(e) or "never closed" in str(e) or "unterminated" in str(e):
             acc = last_line

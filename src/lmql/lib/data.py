@@ -100,7 +100,13 @@ def trackingshuffledobjects(n: int, variant="five_objects"):
     import os
     import json
 
-    path = os.path.join(os.path.expanduser("~"), ".cache", "lmql", "datasets", "shuffled_objects" + variant + ".json")
+    path = os.path.join(
+        os.path.expanduser("~"),
+        ".cache",
+        "lmql",
+        "datasets",
+        f"shuffled_objects{variant}.json",
+    )
 
     if not os.path.exists(path):
         os.makedirs(os.path.join(os.path.expanduser("~"), ".cache", "lmql", "datasets"), exist_ok=True)
@@ -116,9 +122,9 @@ def trackingshuffledobjects(n: int, variant="five_objects"):
 
     choices = list(s["target_scores"].items())
     answer_choices = [x[0].rstrip(".") for x in choices]
-    answer = [x[0] for x in choices if x[1] == max([x[1] for x in choices])][0]
+    answer = [x[0] for x in choices if x[1] == max(x[1] for x in choices)][0]
     choices_line = "Answer Choices: " + ", ".join(answer_choices)
-    
+
     return MultipleChoiceSample(s["input"], answer_choices, answer, choices_line)
 
 def fever(n: int):
@@ -141,9 +147,9 @@ def fever(n: int):
 
     choices = list(s["target_scores"].items())
     answer_choices = [x[0].rstrip(".") for x in choices]
-    answer = [x[0] for x in choices if x[1] == max([x[1] for x in choices])][0]
+    answer = [x[0] for x in choices if x[1] == max(x[1] for x in choices)][0]
     choices_line = "Answer Choices: " + ", ".join(answer_choices)
-    
+
     return MultipleChoiceSample(s["input"], answer_choices, answer, choices_line)
 
 def wikidata(n: int):

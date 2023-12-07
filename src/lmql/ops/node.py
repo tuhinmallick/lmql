@@ -7,7 +7,9 @@ from lmql.ops.follow_map import *
 
 class Node:
     def __init__(self, predecessors):
-        assert type(predecessors) is list, "Predecessors must be a list, not {}".format(type(predecessors))
+        assert (
+            type(predecessors) is list
+        ), f"Predecessors must be a list, not {type(predecessors)}"
         self.predecessors = predecessors
         self.depends_on_context = False
     
@@ -15,15 +17,13 @@ class Node:
         return [execute_op(p, trace=trace, context=context) for p in self.predecessors]
 
     def forward(self, *args, **kwargs):
-        raise NotImplementedError(type(self) + " does not implement forward()")
+        raise NotImplementedError(f"{type(self)} does not implement forward()")
 
     def follow(self, *args, **kwargs):
-        raise NotImplementedError(type(self) + " does not implement follow()")
+        raise NotImplementedError(f"{type(self)} does not implement follow()")
     
     def final(self, args, **kwargs):
-        if all([a == "fin" for a in args]):
-            return "fin"
-        return "var"
+        return "fin" if all(a == "fin" for a in args) else "var"
 
     def __nodelabel__(self):
         return str(type(self))
@@ -106,9 +106,7 @@ class Var(Node):
         )
 
     def final(self, x, context, operands=None, result=None, **kwargs):
-        if self.python_variable:
-            return "fin"
-        return context.final(self.name)
+        return "fin" if self.python_variable else context.final(self.name)
 
     def __repr__(self) -> str:
         return f"<Var {self.name}>"
@@ -117,7 +115,7 @@ class Var(Node):
 def create_mask(follow_map, valid, final):
     if follow_map is None:
         return "*"
-    
+
     allowed_tokens = tset()
     otherwise_result = None
 
@@ -135,8 +133,6 @@ def create_mask(follow_map, valid, final):
             allowed_tokens = union(allowed_tokens,pattern)
         elif value == False and final == ("var",):
             allowed_tokens = union(allowed_tokens, pattern)
-        elif value is None and len(follow_map.components) == 1:
-            allowed_tokens = "*"
         elif result == (False, ('fin',)):
             if pattern != "*":
                 allowed_tokens = setminus(allowed_tokens, pattern)
@@ -149,11 +145,7 @@ def create_mask(follow_map, valid, final):
             othw_value, othw_final = otherwise_result
         else:
             othw_value, othw_final = None, "var"
-        if not othw_value and othw_final == ("fin",):
-            return tset("eos")
-        else:
-            return "*"
-
+        return tset("eos") if not othw_value and othw_final == ("fin",) else "*"
     return allowed_tokens
 
 def is_node(op):
@@ -162,38 +154,36 @@ def is_node(op):
 def derive_predecessor_final(op, trace):
     def get_final(v):
         # for nodes, get final value from trace
-        if is_node(v): return trace[v][1]
-        # for constants, final value is always "fin"
-        return "fin"
+        return trace[v][1] if is_node(v) else "fin"
+
     return [get_final(p) for p in op.predecessors]
 
 def derive_final(op, trace, context, result):
     predecessor_final = derive_predecessor_final(op, trace)
 
     def get_predecessor_result(v):
-        if is_node(v): return trace[v][0]
-        return v
-    
+        return trace[v][0] if is_node(v) else v
+
     predecessor_values = [get_predecessor_result(p) for p in op.predecessors]
 
     context_arg = ()
     if op.depends_on_context: 
         context_arg += (context,)
-    
+
     return op.final(predecessor_final, *context_arg, operands=predecessor_values, result=result)
 
 def execute_op(op: Node, trace=None, context=None, return_final=False, semantics="forward"):
     # for constant dependencies, just return their value
     if not is_node(op): 
         return op
-    
+
     # only evaluate each operation once
     if op in trace.keys(): 
         return trace[op][0]
-    
+
     # compute predecessor values
     inputs = op.execute_predecessors(trace, context)
-    
+
     if op.depends_on_context: 
         inputs += (context,)
 
@@ -201,14 +191,11 @@ def execute_op(op: Node, trace=None, context=None, return_final=False, semantics
     semantics_fct = op.__getattribute__(semantics)
     result = semantics_fct(*inputs, final=inputs_final)
     is_final = derive_final(op, trace, context, result)
-    
+
     if trace is not None: 
         trace[op] = (result, is_final)
 
-    if return_final:
-        return result, is_final
-
-    return result
+    return (result, is_final) if return_final else result
 
 def digest(expr, context, follow_context, no_follow=False):
     if expr is None: return True, "fin", {}, {}
@@ -224,14 +211,14 @@ def digest(expr, context, follow_context, no_follow=False):
         # determine follow map of predecessors
         if len(op.predecessors) == 0: 
             # empty argtuple translates to no follow input
-            intm = all_fmap((ArgTuple(), ["fin"])) 
+            intm = all_fmap((ArgTuple(), ["fin"]))
         else:
             # use * -> value, for constant value predecessor nodes
             def follow_map(p):
-                if is_node(p): return follow_trace[p]
-                else: return fmap(("*", (p, ("fin",))))
+                return follow_trace[p] if is_node(p) else fmap(("*", (p, ("fin",))))
+
             intm = fmap_product(*[follow_map(p) for p in op.predecessors])
-        
+
         # apply follow map
         op_follow_map = follow_apply(intm, op, value, context=follow_context)
 
@@ -240,7 +227,7 @@ def digest(expr, context, follow_context, no_follow=False):
         # print("follow({}) = {}".format(name, op_follow_map))
 
         follow_trace[op] = op_follow_map
-    
+
     return expr_value, is_final, trace, follow_trace
 
 NextToken = "<lmql.next>"

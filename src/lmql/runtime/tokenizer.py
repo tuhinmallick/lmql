@@ -60,7 +60,7 @@ class LMQLTokenizer:
         return self.tokenizer_impl.backend()
     
     def __str__(self):
-        return "<LMQLTokenizer '{}' using {}>".format(self.model_identifier, self.backend())
+        return f"<LMQLTokenizer '{self.model_identifier}' using {self.backend()}>"
 
     def __repr__(self):
         return str(self)
@@ -130,12 +130,12 @@ class LMQLTokenizer:
         chunk = []
         result = []
         global reverse_special_token_mappings
-        
+
         for i in input_ids:
             if i in reverse_special_token_mappings.keys():
                 chunk_result = self.tokenizer_impl.decode_tokens_bytes(chunk)
                 result += chunk_result
-                result.append(("<" + reverse_special_token_mappings[i] + "/>").encode("utf-8"))
+                result.append(f"<{reverse_special_token_mappings[i]}/>".encode("utf-8"))
                 chunk = []
             else:
                 chunk.append(i)
@@ -156,26 +156,25 @@ class LMQLTokenizer:
         """
         Transforms token bytes into a text.
         """
-        result = ""
-        for chunk in self.chunk_out_by_special_ids_bytes(token_bytes):
-            if type(chunk) is str:
-                result += chunk
-            else:
-                result += self.tokenizer_impl.convert_bytes_to_string(chunk)
-        return result
+        return "".join(
+            chunk
+            if type(chunk) is str
+            else self.tokenizer_impl.convert_bytes_to_string(chunk)
+            for chunk in self.chunk_out_by_special_ids_bytes(token_bytes)
+        )
 
     def decode(self, input_ids):
         if len(input_ids) > 0 and type(input_ids[0]) is np.bytes_:
             return self.convert_bytes_to_string(input_ids)
 
-        s = ""
-        for chunk in self.chunk_out_by_special_ids(input_ids):
-            if type(chunk) is str:
-                s += chunk
-            else:
-                s += self.tokenizer_impl.decode(chunk, clean_up_tokenization_spaces=False)
-
-        return s
+        return "".join(
+            chunk
+            if type(chunk) is str
+            else self.tokenizer_impl.decode(
+                chunk, clean_up_tokenization_spaces=False
+            )
+            for chunk in self.chunk_out_by_special_ids(input_ids)
+        )
 
     def __call__(self, s: str, add_special_tokens=False):
         input_ids = []
@@ -183,7 +182,7 @@ class LMQLTokenizer:
         if type(s) is not list:
             s = [s]
             unpack = True
-        
+
         for seq in s:
             chunk_input_ids = []
             for chunk in self.chunk_out_by_tags(seq):
@@ -193,19 +192,14 @@ class LMQLTokenizer:
                     result = self.tokenizer_impl(chunk, add_special_tokens=add_special_tokens)["input_ids"]
                     chunk_input_ids += result
             input_ids.append(chunk_input_ids)
-        
-        if unpack:
-            return {"input_ids": input_ids[0]}
-        else:
-            return {"input_ids": input_ids}
+
+        return {"input_ids": input_ids[0]} if unpack else {"input_ids": input_ids}
     
     def is_special_id(self, id: str):
         return id >= self.model_vocab_size
 
     def truncate_to_model_dim(self, mask):
-        if mask is None:
-            return mask
-        return mask[:self.model_vocab_size]
+        return mask if mask is None else mask[:self.model_vocab_size]
 
     def special_token_id(self, identifier):
         global special_token_mappings
@@ -232,7 +226,7 @@ class LMQLTokenizer:
                 if len(c) > 0:
                     yield c
                 c = []
-                yield "<" + reverse_special_token_mappings[i] + "/>"
+                yield f"<{reverse_special_token_mappings[i]}/>"
             else:
                 c.append(i)
         yield c
@@ -264,9 +258,9 @@ class LMQLTokenizer:
         for m in re.finditer(r"<lmql:(.*?)\/>", s):
             segments.append(s[offset:m.start()])
             if tokenize:
-                segments.append(self.special_token_id("lmql:" + m.group(1)))
+                segments.append(self.special_token_id(f"lmql:{m.group(1)}"))
             else:
-                segments.append("lmql:" + m.group(1))
+                segments.append(f"lmql:{m.group(1)}")
             offset = m.end()
         segments.append(s[offset:])
         return segments
@@ -313,7 +307,7 @@ def _load_tokenizer(model_identifier, type, **kwargs) -> LMQLTokenizer:
                 tiktoken_available = True
         except:
             tiktoken_available = False
-        
+
         if tiktoken_available:
             def loader():
                 if cache_file_exists(cache_path):
@@ -325,7 +319,7 @@ def _load_tokenizer(model_identifier, type, **kwargs) -> LMQLTokenizer:
                     with cachefile(cache_path, "wb") as f:
                         pickle.dump(t, f)
                 return t
-            
+
             return LMQLTokenizer(model_identifier, loader=loader)
 
     # check for sentencepiece tokenizer
@@ -333,7 +327,7 @@ def _load_tokenizer(model_identifier, type, **kwargs) -> LMQLTokenizer:
         from lmql.runtime.tokenizers.sentencepiece_tokenizer import SentencePieceTokenizer
         if SentencePieceTokenizer.is_available(model_identifier):
             return LMQLTokenizer(model_identifier, tokenizer_impl=SentencePieceTokenizer(model_identifier))
-        
+
     # check for huggingface tokenizers
     from lmql.runtime.tokenizers.hf_tokenizer import TransformersTokenizer
     import os
@@ -352,18 +346,20 @@ def _load_tokenizer(model_identifier, type, **kwargs) -> LMQLTokenizer:
                         pickle.dump(t, f)
                 return t
             return LMQLTokenizer(model_identifier, loader=loader)
-    
+
     # slow GPT-only tokenizer (python-backed)
     if PythonBackedTokenizer.is_available(model_identifier):
-        if not "SLOW_TOKENIZER_OK" in os.environ.keys():
+        if "SLOW_TOKENIZER_OK" not in os.environ:
             warnings.warn("warning: using the slow python-backed tokenizer as no other tokenizer is available for {} (transformers or tiktoken). The slow tokenizer is not recommended for production use and only supported for demo uses.".format(model_identifier), UserWarning, stacklevel=-1)
-        
+
         return LMQLTokenizer(model_identifier, tokenizer_impl=PythonBackedTokenizer(model_identifier))
-    
+
     tokenizer_not_found_error(model_identifier)
 
 def tokenizer_not_found_error(model_identifier):
-    raise TokenizerNotAvailableError("Failed to locate a suitable tokenizer implementation for '{}' (Make sure your current environment provides a tokenizer backend like 'transformers', 'tiktoken' or 'llama.cpp' for this model)".format(model_identifier))
+    raise TokenizerNotAvailableError(
+        f"Failed to locate a suitable tokenizer implementation for '{model_identifier}' (Make sure your current environment provides a tokenizer backend like 'transformers', 'tiktoken' or 'llama.cpp' for this model)"
+    )
 
 def get_vocab(tokenizer):
     if hasattr(tokenizer, "vocab"):
@@ -375,7 +371,9 @@ def get_vocab(tokenizer):
     elif hasattr(tokenizer, "tokenizer"):
         return get_vocab(tokenizer.tokenizer)
     else:
-        assert False, "Could not obtain full vocabulary from unknown tokenizer type: {}".format(type(tokenizer))
+        assert (
+            False
+        ), f"Could not obtain full vocabulary from unknown tokenizer type: {type(tokenizer)}"
 
 if __name__ == "__main__":
     import sys
@@ -396,9 +394,9 @@ if __name__ == "__main__":
         print(t.convert_ids_to_tokens(res["input_ids"]))
         n = 0
         result = ""
+        # contains digit
+        digits = "0123456789"
         for t,id in sorted(t.vocab.items(), key=lambda p: p[1]):
-            # contains digit
-            digits = "0123456789"
             if len(t) < 4 and any(c in digits for c in t):
                 print(t,id)
                 n += 1

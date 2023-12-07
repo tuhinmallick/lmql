@@ -39,26 +39,24 @@ async def main():
     stderr = sys.stderr
 
     print("\nTokenizer Backend: ", type(lmql.tokenizer("text-davinci-003").tokenizer_impl).__name__, "\n")
-    
+
     api_stats = Stats("openai-api")
 
     for category in queries:
         print(f"{category['category']}")
-        
+
         if "requires_input" in category.keys() and category["requires_input"]:
             print(" [Skipping because it requires user input]".format(category["category"]))
             continue
-        
+
         for query in category["queries"]:
             # rpad
             rpad = 50 - len(query["name"])
-            if rpad < 0:
-                rpad = 0
-
+            rpad = max(rpad, 0)
             print(f" - {query['name']}{'.' * rpad}", end=" ", flush=True)
 
             api_stats.times["first-chunk-latency"] = 0
-            
+
             # run query
             try:
                 s = time.time()

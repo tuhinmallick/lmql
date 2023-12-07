@@ -34,20 +34,20 @@ class LMTPModel:
         raise NotImplementedError
 
     @classmethod
-    def load(self, model_name, **kwargs) -> 'LMTPModel':
+    def load(cls, model_name, **kwargs) -> 'LMTPModel':
         if ":" in model_name:
             backend_name = model_name.split(":")[0]
             if backend_name in LMTPModel.registry.keys():
                 return LMTPModel.registry[backend_name](model_name, **kwargs)
-        
-        if not model_name in LMTPModel.registry.keys():
-            if not "transformers" in LMTPModel.registry.keys():
+
+        if model_name not in LMTPModel.registry.keys():
+            if "transformers" not in LMTPModel.registry.keys():
                 if "LMQL_BROWSER" in os.environ:
                     assert False, "The browser distribution of LMQL does not support HuggingFace Transformers models." + \
-                        " Please use other model backends or install lmql locally with 'transformers' support (pip install lmql[hf])."
+                            " Please use other model backends or install lmql locally with 'transformers' support (pip install lmql[hf])."
                 else:
                     assert False, "Your distribution of LMQL does not support HuggingFace Transformers models." + \
-                        " Please use other model backends or install lmql with the 'transformers' support (pip install lmql[hf])."
+                            " Please use other model backends or install lmql with the 'transformers' support (pip install lmql[hf])."
             return LMTPModel.registry["transformers"](model_name, **kwargs)
         return LMTPModel.registry[model_name](**kwargs)
 

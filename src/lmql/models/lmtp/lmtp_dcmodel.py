@@ -51,7 +51,7 @@ class LMTPDcModel(DcModel):
         elif endpoint.startswith('replicate:') or endpoint == 'replicate':
             self.use_replicate = True
         elif not self.endpoint.startswith("http"):
-            self.endpoint = "http://" + self.endpoint
+            self.endpoint = f"http://{self.endpoint}"
 
         self.inprocess = inprocess
         self.lmtp_server_kwargs = lmtp_server_kwargs
@@ -113,17 +113,14 @@ class LMTPDcModel(DcModel):
             traceback.print_tb(e.__traceback__)
 
     def make_cache_entry(self, s, payload, sampling_mode):
-        scores = {}
-        for t, score in payload["top_logprobs"].items():
-            scores[int(t)] = score
-        
+        scores = {int(t): score for t, score in payload["top_logprobs"].items()}
         if sampling_mode == "top-1":
             scores[int(payload["token"])] = payload["logprob"]
 
         top_entries = list(sorted(scores.items(), key=lambda x: x[1], reverse=True))
         tokens = [t for t, _ in top_entries]
         scores = [s for _, s in top_entries]
-        edge_type = ["top-{}".format(i+1) for i in range(len(top_entries))]
+        edge_type = [f"top-{i + 1}" for i in range(len(top_entries))]
 
         # for non argmax sampling modes, add the sampled token
         if sampling_mode != "top-1":
@@ -174,7 +171,7 @@ class LMTPDcModel(DcModel):
 
     async def ensure_connected(self):
         if self.error_signal.is_set():
-            raise RuntimeError("LMTP client encountered an error: {}".format(self.error))
+            raise RuntimeError(f"LMTP client encountered an error: {self.error}")
 
         if self.client is None:
             if self._client_loop is None:
@@ -184,12 +181,12 @@ class LMTPDcModel(DcModel):
                     self._client_loop = asyncio.create_task(self.replicate_client_loop(), name="lmtp_replicate_client_loop")
                 else:
                     self._client_loop = asyncio.create_task(self.ws_client_loop(), name="lmtp_ws_client_loop")
-        
+
         await self.connected_signal.wait()
-        
+
         # double check for errors
         if self.error_signal.is_set():
-            raise RuntimeError("LMTP client encountered an error: {}".format(self.error))
+            raise RuntimeError(f"LMTP client encountered an error: {self.error}")
 
     # on deinit
     def close(self):
@@ -210,9 +207,7 @@ class LMTPDcModel(DcModel):
         return self._model_info
 
     def make_logits(self, payload):
-        scores = {}
-        for t, score in payload["top_logprobs"].items():
-            scores[int(t)] = score
+        scores = {int(t): score for t, score in payload["top_logprobs"].items()}
         scores[int(payload["token"])] = payload["logprob"]
         scores = scores.items()
 
@@ -231,7 +226,7 @@ class LMTPDcModel(DcModel):
         constrained_seqs = np.array([s.is_query_constrained], dtype=np.bool_)
         logits_mask_result = await self.compute_logits_mask(s.input_ids.reshape(1, -1), [s.user_data], constrained_seqs, [s], **kwargs)
         mask = logits_mask_result.logits_mask[0]
-        
+
         assert kwargs.get("num_samples", 1) == 1, "LMTP does not support num_samples > 1 right now. Please, duplicate your dc.seq to obtain multiple sampled continuations."
 
         # merge interpreter user data with previous/decoder data
@@ -246,35 +241,39 @@ class LMTPDcModel(DcModel):
             if num_allowed == 1:
                 only_allowed_id = masks.mask_get_only_allowed(mask)
                 return self.stream_and_return_first(s, self.singleton_result(only_allowed_id, 0.0), sampling_mode)
-            
-            assert nputil.is_array(mask), "logit_mask_or_fixed_id must be a LongTensor not a " + str(type(mask))
+
+            assert nputil.is_array(
+                mask
+            ), f"logit_mask_or_fixed_id must be a LongTensor not a {str(type(mask))}"
             invert = num_allowed < self.tokenizer.vocab_size - num_allowed
 
-            if invert: masked = (mask >= 0)
-            else: masked = (mask < 0)
+            masked = (mask >= 0) if invert else (mask < 0)
             mask_value = 100 if invert else -100
             mask = {int(idx): mask_value for idx in np.nonzero(masked)[0]}
 
         # convert seq to input IDs
         ids = self.tokenizer.convert_bytes_to_ids(s.input_ids)
-        
+
         if len(ids) == 0 or (len(ids) > 0 and self.tokenizer.bos_token_id is not None and ids[0] != self.tokenizer.bos_token_id):
             ids = [self.tokenizer.bos_token_id] + ids
-        
+
         # derive max_tokens
         hint = logits_mask_result.max_tokens_hints[0]
-        if "chunksize" in kwargs.keys():
+        if "chunksize" in kwargs:
             max_tokens = min(hint, kwargs["chunksize"]) if hint > 0 else kwargs["chunksize"]
         else:
             max_tokens = hint or self.model.chunk_size if hint > 0 else self.model.chunk_size
 
         if self.verbose:
             text = await self.detokenize(ids)
-            print("lmtp generate: {} / {} ({} tokens, temperature={}, max_tokens={})".format(ids, str([text])[1:-1], len(ids), temperature, max_tokens), flush=True)
+            print(
+                f"lmtp generate: {ids} / {str([text])[1:-1]} ({len(ids)} tokens, temperature={temperature}, max_tokens={max_tokens})",
+                flush=True,
+            )
 
         # get token stream
         token_stream = self.client.generate(ids, max_tokens=max_tokens, temperature=temperature, logit_bias=mask, top_logprobs=top_logprobs, **self.extra_decoding_parameters)
-        
+
         if active_tracer().active:
             stream_event = active_tracer().event("lmtp.generate", {
                 "model": await self.model_info(),
@@ -417,12 +416,12 @@ class LMTPDcModel(DcModel):
     async def _score_next_tokens(self, s, next_tokens, noscore=False):
         if noscore:
             return np.zeros(len(next_tokens), dtype=np.float32)
-    
+
         await self.ensure_connected()
-        
+
         scores = []
         i = 0
-        
+
         ids = self.tokenizer.convert_bytes_to_ids(s.input_ids)
         next_tokens = self.tokenizer.convert_bytes_to_ids(next_tokens)
 
@@ -432,15 +431,19 @@ class LMTPDcModel(DcModel):
         if self.verbose:
             text = await self.detokenize(ids)
             next_texts = await self.detokenize(next_tokens)
-            print("lmtp score: {} + {} / {} + {} ({} tokens)".format(ids, next_tokens, str([text])[1:-1], str([next_texts])[1:-1], len(ids)))
+            print(
+                f"lmtp score: {ids} + {next_tokens} / {str([text])[1:-1]} + {str([next_texts])[1:-1]} ({len(ids)} tokens)"
+            )
 
         async for token in self.client.score(ids, next_tokens):
             t = next_tokens[i]
-            assert token["token"] == t, "Expected token {}, got {}".format(t, token["token"])
+            assert token["token"] == t, f'Expected token {t}, got {token["token"]}'
             scores.append(token["logprob"])
             i += 1
-        assert len(scores) == len(next_tokens), "Expected {} scores, got {}".format(len(next_tokens), len(scores))
-        
+        assert len(scores) == len(
+            next_tokens
+        ), f"Expected {len(next_tokens)} scores, got {len(scores)}"
+
         return np.array(scores, dtype=np.float32)
     
     async def score(self, sqs: List[dc.DecoderSequence], tokens: List[List[int]], max_batch_size=4, deterministic: Union[bool, List[bool]]=False, stop_phrase=False, needs_rewrite=True, user_data=None, noscore=False, internal=False):
@@ -508,8 +511,10 @@ class lmtp_model:
     # (uses reference counting to ensure that the client is only shut down 
     # once all LMTPDcModel instances have closed)
     def inprocess_client_constructor_factory(self, identifier, **kwargs):
-        assert identifier == self.model_identifier, "Model identifier mismatch: {} vs {}".format(self.model_identifier, identifier)
-        
+        assert (
+            identifier == self.model_identifier
+        ), f"Model identifier mismatch: {self.model_identifier} vs {identifier}"
+
         # use in-process, async client
         if self.async_transport:
             return LMTPAsyncClient(identifier, **kwargs)
@@ -522,25 +527,28 @@ class lmtp_model:
             self.lmtp_inprocess_client = LMTPMultiProcessingClient(identifier, **kwargs).ref()
             # ref owned by caller
             return self.lmtp_inprocess_client.ref()
-        
+
         # ref owned by caller
         return self.lmtp_inprocess_client.ref()
 
     def __del__(self):
         if self.lmtp_inprocess_client is not None:
             try:
-                if asyncio.get_event_loop() == asyncio.get_event_loop_policy().get_event_loop():
-                    pass
-                else:
+                if (
+                    asyncio.get_event_loop()
+                    != asyncio.get_event_loop_policy().get_event_loop()
+                ):
                     asyncio.ensure_future(self.lmtp_inprocess_client.close())
             except RuntimeError as e:
                 # ignore if event loop has already been shut down
-                if "no current event loop" in str(e): pass
-                else: raise e
+                if "no current event loop" not in str(e):
+                    raise e
 
     def __call__(self) -> ModelAPIAdapter:
         # reference to factory instance
         this = self
+
+
 
         class LMTPAdapterModel(ModelAPIAdapter):
             def __init__(self) -> None:
@@ -553,7 +561,7 @@ class lmtp_model:
                 self.num_queries = 0
 
             def __str__(self):
-                return "<LMTPAdapterModel {}>".format(self.model_identifier)
+                return f"<LMTPAdapterModel {self.model_identifier}>"
 
             def get_tokenizer(self):
                 if self._tokenizer is None:
@@ -579,8 +587,9 @@ class lmtp_model:
 
             async def tokenize(self, text):
                 return self.get_tokenizer().tokenize(text, asbytes=True)
-            
+
             async def detokenize(self, input_ids):
                 return self.get_tokenizer().decode(input_ids)
+
 
         return LMTPAdapterModel()

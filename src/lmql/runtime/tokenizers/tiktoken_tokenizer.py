@@ -25,8 +25,6 @@ class TiktokenTokenizer:
                 self.vocab[self.enc.decode([i])] = i
             except:
                 print(i)
-                pass
-        
         self.stats = Stats("tiktoken")
 
         for i in range(self.enc.n_vocab, self.enc.max_token_value):
@@ -39,9 +37,7 @@ class TiktokenTokenizer:
         try:
             import tiktoken
             tiktoken.encoding_for_model(model_identifier)
-        except ImportError:
-            return False
-        except KeyError:
+        except (ImportError, KeyError):
             return False
         return True
 
@@ -108,10 +104,10 @@ class TiktokenTokenizer:
 
     @property
     def name(self):
-        return "tiktoken-" + self.enc.name
+        return f"tiktoken-{self.enc.name}"
     
     def backend(self):
-        return "tiktoken " + str(self.enc)
+        return f"tiktoken {str(self.enc)}"
 
 def get_tokenizer(model_identifier):
     import tiktoken

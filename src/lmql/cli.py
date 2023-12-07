@@ -64,7 +64,7 @@ def cmd_run():
     kwargs = {
         "output_writer": writer,
         "certificate": certificate,
-        "__name__": "<lmql run '{}'>".format(args.lmql_file)
+        "__name__": f"<lmql run '{args.lmql_file}'>",
     }
 
     if os.path.exists(absolute_path):
@@ -72,25 +72,25 @@ def cmd_run():
     else:
         code = args.lmql_file
         results = asyncio.run(lmql.run(code, **kwargs))
-    
+
     if type(results) is not list:
         results = [results]
-    
+
     for r in results:
         if isinstance(r, LMQLResult):
             for v in [v for v in r.variables if v.startswith("P(")]:
                 distribution = r.variables[v]
-                max_prob = max([p for _,p in distribution])
+                max_prob = max(p for _,p in distribution)
                 labels = []
                 for value, prob in distribution:
                     label = value if prob != max_prob else f"{value} (*)"
                     labels.append(label)
-                max_length = max([len(str(l)) for l in labels])
+                max_length = max(len(str(l)) for l in labels)
 
                 print(v)
                 for (value, prob), label in zip(distribution, labels):
                     label = label.ljust(max_length)
-                    print(" - {} {}".format(label, prob))
+                    print(f" - {label} {prob}")
 
     if args.time:
         print("Query took:", time.time() - start, "seconds")
@@ -182,7 +182,9 @@ def cmd_usage():
             doc = doc.strip()
         return ("\n  " if c == "usage" else "") + emoji + c.replace("_", "-") + " " * (20 - len(c)) + " " + doc
 
-    command_list = "\n".join(["  " + format_command_line(name, doc) for name, doc in commands])
+    command_list = "\n".join(
+        [f"  {format_command_line(name, doc)}" for name, doc in commands]
+    )
     if version_info.commit == "dev":
         print(f"[LMQL Dev Version {project_root}]\n")
     print(f"""USAGE: lmql <command>
@@ -211,16 +213,16 @@ def hello():
     if len(sys.argv) > 2:
         backend = sys.argv[2]
         if backend not in ["hf", "openai"]:
-            print("Invalid backend, please specify one of {}".format(", ".join(["hf", "openai"])))
+            print(f'Invalid backend, please specify one of {", ".join(["hf", "openai"])}')
             sys.exit(1)
-    
+
     if backend is None or backend == "hf":
         code_local = """
     argmax "Hello[WHO]" from "local:gpt2-medium" where len(TOKENS(WHO)) < 10
     """
         print("[Greeting 🤗 Transformers]")
         asyncio.run(lmql.run(code_local, output_writer=lmql.printing))
-    
+
     if backend is None or backend == "openai":
         print("[Greeting OpenAI]")
         code_openai = 'argmax "Hello[WHO]" from "openai/text-ada-001" where len(TOKENS(WHO)) < 10 and not "\\n" in WHO'
@@ -252,9 +254,14 @@ def main():
     if command_name in hidden_commands.keys():
         hidden_commands[command_name]()
         sys.exit(0)
-    command = [f for f in commands if f.__name__ == "cmd_" + command_name or f.__name__ == "cmd_" + command_name.replace("-", "_")]
-    if len(command) == 0:
-        print("Unknown command: " + sys.argv[1])
+    command = [
+        f
+        for f in commands
+        if f.__name__
+        in [f"cmd_{command_name}", "cmd_" + command_name.replace("-", "_")]
+    ]
+    if not command:
+        print(f"Unknown command: {sys.argv[1]}")
         cmd_usage()
         sys.exit(1)
     command[0]()

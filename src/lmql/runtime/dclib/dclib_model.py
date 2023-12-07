@@ -84,8 +84,9 @@ class DcModel(DcModelRewriteMixin):
     async def compute_logits_mask(self, input_ids, user_data, is_constrained, seqs, required=False, **kwargs):
         assert "modern_logits_processor" in kwargs, "modern_logits_processor is required for compute_logits_mask"
         processor = kwargs["modern_logits_processor"]
-        mask = await processor(seqs, additional_logits_processor_mask=is_constrained, **kwargs)
-        return mask
+        return await processor(
+            seqs, additional_logits_processor_mask=is_constrained, **kwargs
+        )
 
     async def argmax(self, sequences, **kwargs):
         """

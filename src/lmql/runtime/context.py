@@ -65,6 +65,4 @@ class Context:
     @classmethod
     def get(cls):
         ctx = _context.get()
-        if len(ctx) == 0:
-            return None
-        return ctx[-1]
+        return None if len(ctx) == 0 else ctx[-1]

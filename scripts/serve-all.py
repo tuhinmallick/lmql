@@ -26,14 +26,11 @@ except:
     print("Please install 'onchange' with 'npm install -g onchange'")
     sys.exit(1)
 
-processes = []
-
 summary = ""
 
-summary += "Browser Playground on " + termcolor.colored("http://localhost:8081/playground/\n\n", "green") 
+summary += "Browser Playground on " + termcolor.colored("http://localhost:8081/playground/\n\n", "green")
 serve_web_deploy = subprocess.Popen(["python", "-m", "http.server", "8081"], cwd="web-deploy", stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-processes.append(serve_web_deploy)
-
+processes = [serve_web_deploy]
 # autobuild web 
 summary += "Web on " + termcolor.colored("http://localhost:5173/\n", "green")
 auto_build_docs = subprocess.Popen(["yarn", "run", "docs:dev"], cwd="docs")

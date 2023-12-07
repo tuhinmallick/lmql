@@ -76,10 +76,7 @@ def remove_indentation(s, oneline=False):
 
         lines.append(line[len(min_indent):])
 
-    if oneline:
-        return " \\\n".join(lines)
-    else:
-        return "\n".join(lines)
+    return " \\\n".join(lines) if oneline else "\n".join(lines)
 
 def untokenize_without_comments(s):
     if type(s) is str: return s
@@ -98,10 +95,7 @@ def ast_parse(s, unindent=False, oneline=False, loc=None):
         if unindent: s = remove_indentation(s, oneline=oneline)
         return ast.parse(s)
     except SyntaxError as e:
-        msg = ""
-        
-        msg += "Failed to parse {} clause of the query ({}):\n\n".format(loc, e.msg)
-        
+        msg = f"Failed to parse {loc} clause of the query ({e.msg}):\n\n"
         for lineno, line in enumerate(s.split("\n")):
             if lineno + 1 == e.lineno:
                 msg += "\t" + line[:e.offset - 1]
@@ -110,20 +104,21 @@ def ast_parse(s, unindent=False, oneline=False, loc=None):
                 break
             elif abs(lineno + 1 - e.lineno) < 2:
                 msg += "\t" + line + "\n"
-        
+
         raise FragmentParserError(msg)
 
 def tok_str(tok):
-    if tok.type == tokenize.NAME and tok.string == "AND":
-        return "and"
-    if tok.type == tokenize.NAME and tok.string == "OR":
-        return "and"
-    if tok.type == tokenize.NAME and tok.string == "IN":
-        return "in"
-    if tok.type == tokenize.NAME and tok.string == "NOT":
-        return "not"
-    if tok.type == tokenize.NAME and tok.string == "AS":
-        return "as"
+    if tok.type == tokenize.NAME:
+        if tok.string == "AND":
+            return "and"
+        if tok.string == "OR":
+            return "and"
+        if tok.string == "IN":
+            return "in"
+        if tok.string == "NOT":
+            return "not"
+        if tok.string == "AS":
+            return "as"
     return tok.string
 
 def double_escape_str(s):
@@ -134,8 +129,13 @@ def double_escape(tok: tokenize.TokenInfo):
     """Adds an extra layer of backslashes to make them survive the tokenize->parse->transform->unparse pipeline."""
     if tok.type != tokenize.STRING or (not tok.string.startswith('"""lmql') and not tok.string.startswith("'''lmql")): 
         return tok
-    t = tokenize.TokenInfo(tok.type, tok_str(tok).replace("\\n", "\\\\n"), tok.start, tok.end, tok.line)
-    return t
+    return tokenize.TokenInfo(
+        tok.type,
+        tok_str(tok).replace("\\n", "\\\\n"),
+        tok.start,
+        tok.end,
+        tok.line,
+    )
 
 def double_unescape_str(s):
     toks = tokenize.generate_tokens(StringIO(s).readline)
@@ -154,9 +154,9 @@ class LanguageFragmentParser:
         self.paren_count = 0
 
     def parse(self, readline):
-        for i, tok in enumerate(tokenize.generate_tokens(readline)):
+        for tok in tokenize.generate_tokens(readline):
             self.digest(tok)
-        
+
         if self.state == "start":
             self.query.prompt_str = self.query.prologue
             self.query.prologue = []
@@ -199,16 +199,17 @@ class LanguageFragmentParser:
 
     def syntax_validation(self):
         # validation distribution clause
-        if self.query.distribution is not None:
-            error_msg = "The distribution clause must be formed like 'VAR in [list of values]'."
-            if type(self.query.distribution) is not ast.Compare:
-                raise FragmentParserError(error_msg)
-            if type(self.query.distribution.ops[0]) is not ast.In:
-                raise FragmentParserError(error_msg)
-            variable_node = self.query.distribution.left
-            if type(variable_node) is not ast.Name:
-                raise FragmentParserError(error_msg)
-            values_list = self.query.distribution.comparators[0]
+        if self.query.distribution is None:
+            return
+        error_msg = "The distribution clause must be formed like 'VAR in [list of values]'."
+        if type(self.query.distribution) is not ast.Compare:
+            raise FragmentParserError(error_msg)
+        if type(self.query.distribution.ops[0]) is not ast.In:
+            raise FragmentParserError(error_msg)
+        variable_node = self.query.distribution.left
+        if type(variable_node) is not ast.Name:
+            raise FragmentParserError(error_msg)
+        values_list = self.query.distribution.comparators[0]
 
     def ast_parse(self):
         # parse decode, prompt and from
@@ -218,9 +219,9 @@ class LanguageFragmentParser:
         else:
             # default decoder
             self.query.decode = ast.parse("__dynamic__").body[0].value
-        
+
         self.query.prompt = ast_parse(self.query.prompt_str, unindent=True, loc="prompt").body
-        
+
         from_body = ast_parse(self.query.from_str, unindent=True, loc="from").body
         if len(from_body) > 0:
             self.query.from_ast = from_body[0]
@@ -228,11 +229,7 @@ class LanguageFragmentParser:
             self.query.from_ast = ast.Str(s="<dynamic>")
 
         where_body = ast_parse(self.query.where_str, unindent=True, oneline=True, loc="where").body
-        if len(where_body) > 0:
-            self.query.where = where_body[0]
-        else:
-            self.query.where = None
-        
+        self.query.where = where_body[0] if len(where_body) > 0 else None
         # parse distribution clause if present
         self.query.distribution = ast_parse(self.query.distribution_str, unindent=True, loc="distribution").body
         if len(self.query.distribution) > 0: 
@@ -241,10 +238,7 @@ class LanguageFragmentParser:
             self.query.distribution = None
 
         scoring_body = ast_parse(self.query.scoring_str, unindent=True, loc="scoring").body
-        if len(scoring_body) > 0:
-            self.query.scoring = scoring_body[0]
-        else:
-            self.query.scoring = None
+        self.query.scoring = scoring_body[0] if len(scoring_body) > 0 else None
 
     def digest(self, tok):
         if self.state == "start":

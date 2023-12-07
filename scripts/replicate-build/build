@@ -134,7 +134,7 @@ for model_name, model_config in build_config["models"].items():
         force_hardlink_to(snapshot_dst_file_path, snapshot_src_file_path.resolve())
     for snapshot_dst_file_path in snapshot_dst_path.iterdir():
         basename = snapshot_dst_file_path.name
-        if not basename in entries_seen:
+        if basename not in entries_seen:
             logging.debug(f"{basename!r} not in {entries_seen!r}, deleting")
             snapshot_dst_file_path.unlink()
 

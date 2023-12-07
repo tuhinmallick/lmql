@@ -25,12 +25,14 @@ def prepare_cache_access():
             cache_is_valid = int(cache_version) == CACHE_VERSION
     except:
         cache_is_valid = False
-    
-    if "CLEAR_CACHE" in os.environ.keys():
+
+    if "CLEAR_CACHE" in os.environ:
         cache_is_valid = False
-    
+
     if not cache_is_valid:
-        warnings.warn("LMQL cache directory ({}) format is outdated, clearing cache (existing: v{}, runtime: v{})...".format(CACHE_DIR, cache_version, CACHE_VERSION))
+        warnings.warn(
+            f"LMQL cache directory ({CACHE_DIR}) format is outdated, clearing cache (existing: v{cache_version}, runtime: v{CACHE_VERSION})..."
+        )
         for f in os.listdir(CACHE_DIR):
             if os.path.isfile(os.path.join(CACHE_DIR, f)):
                 os.remove(os.path.join(CACHE_DIR, f))
@@ -38,7 +40,7 @@ def prepare_cache_access():
             f.write(str(CACHE_VERSION))
 
 def cache_file_exists(path):
-    if "NO_CACHE" in os.environ.keys():
+    if "NO_CACHE" in os.environ:
         return False
     prepare_cache_access()
     return os.path.exists(path)
@@ -62,5 +64,5 @@ class CacheDirFile:
 
 def cachefile(path, mode):
     if not cache_file_exists(os.path.join(CACHE_DIR, path)) and "r" in mode:
-        raise FileNotFoundError("Cache file {} does not exist".format(path))
+        raise FileNotFoundError(f"Cache file {path} does not exist")
     return CacheDirFile(path, mode)

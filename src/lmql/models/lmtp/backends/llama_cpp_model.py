@@ -10,23 +10,23 @@ from lmql.models.lmtp.backends.lmtp_model import (LMTPModel, LMTPModelResult,
 class LlamaCppModel(LMTPModel):
     def __init__(self, model_identifier, **kwargs):
         from llama_cpp import Llama
-        
+
         self.model_identifier = model_identifier
         self.kwargs = kwargs
 
         self.max_batch_size = 1
 
         print("[Loading llama.cpp model from", self.model_identifier, " with ", kwargs, "]", flush=True)
-        if not "verbose" in kwargs.keys():
+        if "verbose" not in kwargs:
             kwargs["verbose"] = False
         self.llm = Llama(model_path=model_identifier[len("llama.cpp:"):], logits_all=True, **kwargs)
 
     def model_info(self):
         import llama_cpp
         return {
-            "model_identifier": self.model_identifier[len("llama.cpp:"):],
+            "model_identifier": self.model_identifier[len("llama.cpp:") :],
             "model_type": "llama.cpp",
-            "constructor": "Llama(model_path='{}'{})".format(self.model_identifier[len("llama.cpp:"):], ", " + ", ".join(["{}={}".format(k, v) for k,v in self.kwargs.items()]) if len(self.kwargs) > 0 else ""),
+            "constructor": f"""Llama(model_path='{self.model_identifier[len("llama.cpp:"):]}'{", " + ", ".join([f"{k}={v}" for k, v in self.kwargs.items()]) if len(self.kwargs) > 0 else ""})""",
             "llama-cpp-python": llama_cpp.__version__,
         }
 

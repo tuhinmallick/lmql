@@ -260,9 +260,7 @@ class LMTP(LLM):
         try:
             loop = asyncio.get_running_loop()  # Throws if not in async context
         except RuntimeError as err:
-            if "loop" in str(err):
-                pass
-            else:
+            if "loop" not in str(err):
                 raise
         if loop is not None:
             raise RuntimeError(
@@ -309,7 +307,7 @@ class LMTP(LLM):
         decoded = None
 
         async with aiohttp.ClientSession() as session:
-            async with session.ws_connect("ws://" + self.endpoint) as sock:
+            async with session.ws_connect(f"ws://{self.endpoint}") as sock:
                 client = LMTPWebSocketClient(self.model, sock)
                 client.connect()
 
@@ -321,16 +319,16 @@ class LMTP(LLM):
 
                     if run_manager is not None or stop:
                         decoded = tokenizer.decode(ids)
-                        if run_manager is not None:
-                            await run_manager.on_llm_new_token(
-                                decoded[last_seen_len:]
-                            )
-                            last_seen_len = len(decoded)
-                        if stop:
-                            new = decoded[last_seen_len:]
-                            for stop_token in stop:
-                                if stop_token in new:
-                                    break
+                    if run_manager is not None:
+                        await run_manager.on_llm_new_token(
+                            decoded[last_seen_len:]
+                        )
+                        last_seen_len = len(decoded)
+                    if stop:
+                        new = decoded[last_seen_len:]
+                        for stop_token in stop:
+                            if stop_token in new:
+                                break
 
         result = (decoded or tokenizer.decode(ids))[prompt_len:]
 

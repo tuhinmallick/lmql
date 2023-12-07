@@ -65,7 +65,9 @@ class VocabularyMatcher:
                     _instance.cache = pickle.load(f)
                     _instance.disk_cached = len(_instance.cache)
                 except:
-                    warnings.warn("Failed to load token mask cache from {}. If the cache is corrupted, please delete it.".format(cache_path))
+                    warnings.warn(
+                        f"Failed to load token mask cache from {cache_path}. If the cache is corrupted, please delete it."
+                    )
         except:
             # no cache file
             pass
@@ -91,11 +93,7 @@ class VocabularyMatcher:
             self.stats = stats
 
         def is_cached(k):
-            if k.startswith("named:"):
-                return True
-            if k.startswith("charlen:"):
-                return True
-            return False
+            return True if k.startswith("named:") else bool(k.startswith("charlen:"))
 
         with cachefile(cache_path, "wb") as f:
             pickle.dump({k: v for k, v in self.cache.items() if is_cached(k)}, f)
@@ -103,7 +101,7 @@ class VocabularyMatcher:
     @staticmethod
     def instance():
         tokenizer = get_tokenizer()
-        if not tokenizer.name in VocabularyMatcher._instances:
+        if tokenizer.name not in VocabularyMatcher._instances:
             raise Exception("VocabularyMatcher not initialized.")
         return VocabularyMatcher._instances[tokenizer.name]
 
@@ -123,11 +121,11 @@ class VocabularyMatcher:
             return result
 
     def mask_cache_name(self, tokens=None, regex=None, minus=None, prefix=None, exact=None, charlen=None, name=None):
-        keys = ["named:" + name] if name is not None else []
+        keys = [f"named:{name}"] if name is not None else []
         if regex is not None:
-            return keys + ["regex:" + regex]
+            return keys + [f"regex:{regex}"]
         elif charlen is not None:
-            return keys + ["charlen:" + str(charlen)]
+            return keys + [f"charlen:{str(charlen)}"]
         else:
             assert tokens is not None
             t = ("prefix " if prefix else "") + ("* \ " if minus else "") + "|".join(sorted(list(tokens)))
@@ -214,12 +212,12 @@ class VocabularyMatcher:
                         pattern = "|".join(f"{process(t)}.*" for t in tokens if t != "eos")
                         pattern = re.compile(pattern, re.UNICODE)
                         matcher = pattern.match
-                    
+
                     for id, subtoken in self.vocab.items():
                         if matcher(subtoken) is not None:
                             mask[id] = True
-                
-                if any([t == "eos" for t in tokens]): # has eos
+
+                if any(t == "eos" for t in tokens): # has eos
                     mask[self.eos_token_id] = True
 
         return mask
@@ -250,7 +248,7 @@ class VocabularyMatcher:
                 tokens.append("eos")
             else:
                 # invalid token
-                if not i in self.vocab:
+                if i not in self.vocab:
                     continue
 
                 s = self.vocab[i]
@@ -260,7 +258,7 @@ class VocabularyMatcher:
                 tokens.append(tstr(s))
 
         return prefix + "{{{}}}".format(
-            ", ".join([t for t in sorted(list(tokens))]) + ("..." if truncated else "")
+            ", ".join(list(sorted(list(tokens)))) + ("..." if truncated else "")
         )
 
 VocabularyMatcher._instances = {}
@@ -312,8 +310,8 @@ class TokenSetConcrete:
                 continue
             if m[deterministic_id]: 
                 available_tails.append(t)
-        
-        if len(available_tails) == 0: 
+
+        if not available_tails: 
             return None
         elif len(available_tails) == 1: 
             return available_tails[0]
@@ -372,10 +370,10 @@ class TokenSetConcrete:
         if s in self.tokens: 
             return not self.minusset # returns True if not minusset and s in self.tokens
         else:
-            for s in self.tokens:
-                if s.startswith(s): 
-                    return not self.minusset # returns True if not minusset and some s in self.tokens starts with s
-            return self.minusset
+            return next(
+                (not self.minusset for s in self.tokens if s.startswith(s)),
+                self.minusset,
+            )
 
     def __len__(self):
         return self.mask.sum()
@@ -396,14 +394,9 @@ class TokenSetConcrete:
 
     def __eq__(self, other):
         if other == "∅": 
-            if self.mask.sum() == 0: 
-                return True
-            return False
+            return self.mask.sum() == 0
         if other == "*": 
-            if self.mask.sum() == self.mask.shape[0]: 
-                return True
-            return False
-
+            return self.mask.sum() == self.mask.shape[0]
         assert type(other) is TokenSetConcrete, "Can only compare (==) two TokenSets."
 
         return np.all(self.mask == other.mask) and self.tail == other.tail
@@ -427,15 +420,19 @@ class TokenSetSymbolic:
         assert type(other) is TokenSetSymbolic, "Can only union over two TokenSetSymbolics."
 
         if self.minusset:
-            if other.minusset:
-                return TokenSetSymbolic(tokens=self.tokens.intersection(other.tokens), minus=True)
-            else:
-               return TokenSetSymbolic(tokens=self.tokens - other.tokens, minus=True) 
+            return (
+                TokenSetSymbolic(
+                    tokens=self.tokens.intersection(other.tokens), minus=True
+                )
+                if other.minusset
+                else TokenSetSymbolic(
+                    tokens=self.tokens - other.tokens, minus=True
+                )
+            )
+        if other.minusset:
+            return TokenSetSymbolic(tokens=other.tokens - self.tokens, minus=True) 
         else:
-            if other.minusset:
-                return TokenSetSymbolic(tokens=other.tokens - self.tokens, minus=True) 
-            else:
-                return TokenSetSymbolic(tokens=other.tokens.union(self.tokens), minus=False) 
+            return TokenSetSymbolic(tokens=other.tokens.union(self.tokens), minus=False) 
     
     def intersect(self, other):
         if other == "∅": return "∅"
@@ -444,63 +441,62 @@ class TokenSetSymbolic:
         assert type(other) is TokenSetSymbolic, "Can only intersect two TokenSetSymbolics."
 
         if self.minusset:
-            if other.minusset:
-                return TokenSetSymbolic(tokens=self.tokens.union(other.tokens), minus=True)
-            else:
-               return TokenSetSymbolic(tokens=other.tokens - self.tokens, minus=False) 
+            return (
+                TokenSetSymbolic(
+                    tokens=self.tokens.union(other.tokens), minus=True
+                )
+                if other.minusset
+                else TokenSetSymbolic(
+                    tokens=other.tokens - self.tokens, minus=False
+                )
+            )
+        if other.minusset:
+            return TokenSetSymbolic(tokens=self.tokens - other.tokens, minus=False) 
         else:
-            if other.minusset:
-                return TokenSetSymbolic(tokens=self.tokens - other.tokens, minus=False) 
-            else:
-                return TokenSetSymbolic(tokens=self.tokens.intersection(other.tokens), minus=False)
+            return TokenSetSymbolic(tokens=self.tokens.intersection(other.tokens), minus=False)
 
     def setminus(self, other):
         if other == "*": 
             return "∅"
         if other == "∅" or (not other.minusset and len(other.tokens) == 0):
             return TokenSetSymbolic(tokens=self.tokens, minus=self.minusset)
-        
-        if self.minusset:
-            if other.minusset:
-                return TokenSetSymbolic(tokens=self.tokens.union(other.tokens), minus=True)
-            else:
-                excluded_tokens = self.tokens.union(other.tokens)
-                return TokenSetSymbolic(tokens=excluded_tokens, minus=True)
-        else:
-            if other.minusset:
-                return TokenSetSymbolic(tokens=self.tokens.intersection(other.tokens), minus=False) 
-            else:
-                return TokenSetSymbolic(tokens=self.tokens - other.tokens, minus=False)
+
+        if not self.minusset:
+            return (
+                TokenSetSymbolic(
+                    tokens=self.tokens.intersection(other.tokens), minus=False
+                )
+                if other.minusset
+                else TokenSetSymbolic(
+                    tokens=self.tokens - other.tokens, minus=False
+                )
+            )
+        if other.minusset:
+            return TokenSetSymbolic(tokens=self.tokens.union(other.tokens), minus=True)
+        excluded_tokens = self.tokens.union(other.tokens)
+        return TokenSetSymbolic(tokens=excluded_tokens, minus=True)
 
     def starts_with(self, s):
         if s in self.tokens: 
             return not self.minusset # returns True if not minusset and s in self.tokens
         else:
-            for s in self.tokens:
-                if s.startswith(s): 
-                    return not self.minusset # returns True if not minusset and some s in self.tokens starts with s
-            return self.minusset
+            return next(
+                (not self.minusset for s in self.tokens if s.startswith(s)),
+                self.minusset,
+            )
 
     def __len__(self):
-        if self.minusset: 
-            # cannot determine this without knowledge of the vocabulary size
-            return 9999
-        else: return len(self.tokens)
+        return 9999 if self.minusset else len(self.tokens)
 
     def __repr__(self):
         return str(self)
 
     def __str__(self):
-        tokens_str = "{{{}}}".format(", ".join([t for t in sorted(list(self.tokens))]))
+        tokens_str = "{{{}}}".format(", ".join(list(sorted(list(self.tokens)))))
 
         if self.minusset:
-            if len(self.tokens) == 0:
-                return "*"
-            return "* \ {}".format(tokens_str)
-        else:
-            if len(self.tokens) == 0: 
-                return "{}"
-            return tokens_str
+            return "*" if len(self.tokens) == 0 else f"* \ {tokens_str}"
+        return "{}" if len(self.tokens) == 0 else tokens_str
 
     def __eq__(self, other):
         if other == "∅": return False
@@ -513,32 +509,28 @@ class TokenSetSymbolic:
 TokenSet = TokenSetConcrete
 
 def intersect(*args):
-    assert len(args) != 0, "Intersection of zero patterns is not possible."
+    assert args, "Intersection of zero patterns is not possible."
     if len(args) == 1: return args[0]
     if len(args) != 2: return intersect(args[0], intersect(*args[1:]))
     p1, p2 = args
 
     if p1 == p2: return p1
-    
+
     if p1 == "∅" or p2 == "∅": return "∅"
     if p1 == "*": return p2
     if p2 == "*": return p1
-    
-    tokens = p1.intersect(p2)
-    
-    if len(tokens) == 0: return "∅"
 
-    return tokens
+    tokens = p1.intersect(p2)
+
+    return "∅" if len(tokens) == 0 else tokens
 
 def union(p1, p2):
     if p1 == p2: return p1
-    
+
     if p1 == "*": return p1
     if p2 == "*": return p2
     if p1 == "∅": return p2
-    if p2 == "∅": return p1
-
-    return p1.union(p2)
+    return p1 if p2 == "∅" else p1.union(p2)
 
 def tset(*tokens, regex=False, prefix=False, exact=False, charlen=None, name=None):
     if charlen is not None:
@@ -571,7 +563,7 @@ def ntset(*tokens):
 
 class ArgTuple(tuple): 
     def __repr__(self) -> str:
-        return "ArgTuple" + super().__repr__()
+        return f"ArgTuple{super().__repr__()}"
 
 def setminus(p1, p2):
     if p1 == "∅": return "∅"

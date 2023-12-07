@@ -29,7 +29,7 @@ class LMTPWebSocketTransport:
         while True:
             try:
                 type, payload = await self.queue.get()
-                await self.ws.send_str(type + " " + json.dumps([payload]))
+                await self.ws.send_str(f"{type} {json.dumps([payload])}")
             except asyncio.CancelledError:
                 break
             except Exception as e:

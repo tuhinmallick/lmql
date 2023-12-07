@@ -4,24 +4,20 @@ def is_array(x):
     return isinstance(x, np.ndarray)
 
 def item(a):
-    if is_array(a): 
-        assert len(a) == 1 and a.ndim == 1
-        return a[0]
-    else: return a
+    if not is_array(a):
+        return a
+    assert len(a) == 1 and a.ndim == 1
+    return a[0]
 
 def ensure_array(v, dtype=None):
     if v is None: return None
-    if is_array(v): return v
-    else: return np.array(v, dtype=dtype)
+    return v if is_array(v) else np.array(v, dtype=dtype)
 
 def ensure_iterable(v):
     if type(v) is np.float32 or type(v) is np.float64 or type(v) is np.int32 or type(v) is np.int64 or type(v) is float or type(v) is int or type(v) is str:
         return [v]
     elif type(v) is np.ndarray:
-        if v.ndim == 0:
-            return [v.item()]
-        else:
-            return v
+        return [v.item()] if v.ndim == 0 else v
     elif type(v) is list:
         return v
     elif hasattr(v, "numpy"):
@@ -66,10 +62,7 @@ def multinomial(logprobs, num_samples=1):
     return next_token_id, next_token_score
 
 def unsqueeze(a, axis):
-    if is_array(a):
-        return np.expand_dims(a, axis)
-    else:
-        return a
+    return np.expand_dims(a, axis) if is_array(a) else a
     
 def replace_inf_nan_with_str(d):
     import math

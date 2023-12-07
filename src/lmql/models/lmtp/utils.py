@@ -12,7 +12,7 @@ def rename_model_args(model_args):
     elif bits == 8:
         model_args["load_in_8bit"] = True
 
-    if dtype is not None and (dtype != "4bit" and dtype != "8bit"):
+    if dtype is not None and dtype not in ["4bit", "8bit"]:
         import torch
         if type(dtype) is str:
             model_args["torch_dtype"] = getattr(torch, dtype)
@@ -25,7 +25,7 @@ def rename_model_args(model_args):
 
     if type(q_config) is set:
         from transformers import BitsAndBytesConfig
-        q_config = {k: v for k, v in q_config.pop()}
+        q_config = dict(q_config.pop())
         model_args["quantization_config"] = BitsAndBytesConfig(**q_config)
     elif q_config is not None:
         warnings.warn(

@@ -85,7 +85,7 @@ class LMTPAsyncClient:
         try:
             result = await asyncio.wait_for(fut, timeout=5)
         except TimeoutError as e:
-            raise TimeoutError("LMTP request '{}' timed out after 5 seconds".format(name))
+            raise TimeoutError(f"LMTP request '{name}' timed out after 5 seconds")
         self._model_info = result
         return result
 
@@ -105,7 +105,7 @@ class LMTPAsyncClient:
                     msg = await self.token_queue.get()
                     if msg is None: continue
                     type, d = msg
-                    
+
                     if type == "TOKEN":
                         stream_id = d["stream_id"]
                         consumers = self.iterators.get(stream_id, [])
@@ -118,7 +118,7 @@ class LMTPAsyncClient:
                     else:
                         print("lmtp_async: unknown msg type", type)
                 except Exception as e:
-                    warnings.warn("failed to handle msg {}: {}".format(msg, e))
+                    warnings.warn(f"failed to handle msg {msg}: {e}")
         except asyncio.CancelledError:
             return
 

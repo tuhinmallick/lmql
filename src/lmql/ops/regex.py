@@ -36,13 +36,13 @@ def _deparse(seq):
             pattern += "$"
         elif op == c.SUBPATTERN:
             arg0, arg1, arg2, sseq = arg
-            pattern += '(' + _deparse(sseq) + ')'
+            pattern += f'({_deparse(sseq)})'
         elif op == c.BRANCH:
             must_be_none, branches = arg
             pattern += '|'.join([_deparse(a) for a in branches])
         elif op == c.RANGE:
             low, high = arg
-            pattern += chr(low) + '-' + chr(high)
+            pattern += f'{chr(low)}-{chr(high)}'
         elif op == c.IN:
             assert isinstance(arg, list)
             if len(arg) == 1 and arg[0][0] == c.CATEGORY:
@@ -82,7 +82,7 @@ def _subgroups(seq, groupid, value=None, remove=False):
 
 def _consume_char(char, seq, verbose=False, indent=0):
     assert isinstance(seq, list)
-    
+
     def _ret(out, is_consumed=True):
         if out is None: is_consumed = False
         if verbose: print(f'-> {out}({is_consumed})')
@@ -95,17 +95,15 @@ def _consume_char(char, seq, verbose=False, indent=0):
     if op == c.ANY:
         return _ret(seq[1:])
     elif op == c.LITERAL:
-        if arg == char: return _ret(seq[1:])
-        else:
-            return _ret(None)
+        return _ret(seq[1:]) if arg == char else _ret(None)
     elif op == c.IN:
 
-        negate = False 
+        negate = False
         patterns = arg
         if arg[0][0] == c.NEGATE:
             negate = True
             patterns = arg[1:]
-        
+
         match_found = False
         for a in patterns:
             if a[0] == c.LITERAL:
@@ -120,12 +118,7 @@ def _consume_char(char, seq, verbose=False, indent=0):
             else:
                 raise NotImplementedError(f"unsupported regex pattern {op}{a}")
             if match_found: break
-        if match_found != negate: # xor -> either match and not negate or no match and negate
-            return _ret(seq[1:])
-        else: return _ret(None)
-        low, high = arg[0][1]
-        if low <= char <= high: return _ret(seq[1:])
-        else: return _ret(None)
+        return _ret(seq[1:]) if match_found != negate else _ret(None)
     elif op == c.BRANCH:
         must_be_none, branches = arg
         assert must_be_none is None
@@ -133,7 +126,7 @@ def _consume_char(char, seq, verbose=False, indent=0):
         for i, branch in enumerate(branches):
             dbranch, _ = _consume_char(char, list(branch), verbose=verbose, indent=indent+2)
             if dbranch is not None: branches_out.append(dbranch)
-        if len(branches_out) == 0: return _ret(None)
+        if not branches_out: return _ret(None)
         out = _simplify([(op, (must_be_none, branches_out))])
         out.extend(seq[1:])
         return _ret(out)
@@ -240,10 +233,10 @@ class Regex:
     def _check_cache(self, chars):
         if not self.use_cache: return False
         t = self._trie
-        for i, c in enumerate(chars):
+        for c in chars:
             if c in t: t = t[c]
+            elif '__hit__' in t: return True
             else:
-                if '__hit__' in t: return True
                 break
         return False
     

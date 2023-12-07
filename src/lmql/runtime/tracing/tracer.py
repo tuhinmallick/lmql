@@ -71,18 +71,21 @@ class Tracer:
             # check for list of dataclasses
             elif type(data) is list and len(data) > 0 and dataclasses.is_dataclass(data[0]):
                 data = [dataclasses.asdict(d) for d in data]
-            
+
             # process event data
             if skip_none:
                 data = remove_none_keys(data)
             data = redact_data(data, redact)
-            
+
             s = json.dumps(data)
             data = json.loads(s)
         except:
-            warnings.warn("Tracer: cannot log or trace non-serializable data: {}".format(data), RuntimeWarning)
+            warnings.warn(
+                f"Tracer: cannot log or trace non-serializable data: {data}",
+                RuntimeWarning,
+            )
             return
-        
+
         self.events.append({
             "name": name,
             "data": data
@@ -113,9 +116,11 @@ class Tracer:
     def __str__(self):
         children_str = ""
         if len(self.children) > 0:
-            children_str = " children=[\n{}\n".format("\n".join([" - " + str(c) for c in self.children]))
+            children_str = " children=[\n{}\n".format(
+                "\n".join([f" - {str(c)}" for c in self.children])
+            )
 
-        return "<lmql.Tracer '{}' events={} metrics={}{}]>".format(self.name, len(self.events), len(self.metrics), children_str)
+        return f"<lmql.Tracer '{self.name}' events={len(self.events)} metrics={len(self.metrics)}{children_str}]>"
 
 class Event:
     def __init__(self, entry):
@@ -137,7 +142,14 @@ class NullTracer:
         self.active = False
     
     def __getattribute__(self, __name: str) -> Any:
-        if __name in ["name", "__dict__", "parent", "active", "__str__", "__repr__"]:
+        if __name in {
+            "name",
+            "__dict__",
+            "parent",
+            "active",
+            "__str__",
+            "__repr__",
+        }:
             return super().__getattribute__(__name)
         return self
     
@@ -146,7 +158,7 @@ class NullTracer:
         return self
     
     def __str__(self):
-        return "<lmql.NullTracer '{}'>".format(self.name)
+        return f"<lmql.NullTracer '{self.name}'>"
     
     def __repr__(self):
         return str(self)
@@ -231,23 +243,18 @@ def trace(name):
     def decorator(fct):
         if inspect.iscoroutinefunction(fct):
             async def wrapper(*args, **kwargs):
-                if not has_tracer():
-                    tracer = NullTracer(name)
-                else:
-                    tracer = Tracer(name)
-
+                tracer = NullTracer(name) if not has_tracer() else Tracer(name)
                 with ContextTracer(tracer):
                     return await fct(*args, **kwargs)
+
         else:
             def wrapper(*args, **kwargs):
-                if not has_tracer():
-                    tracer = NullTracer(name)
-                else:
-                    tracer = Tracer(name)
-                
+                tracer = NullTracer(name) if not has_tracer() else Tracer(name)
                 with ContextTracer(tracer):
                     return fct(*args, **kwargs)
+
         return wrapper
+
     return decorator
 
 def traced(name):

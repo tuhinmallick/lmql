@@ -5,7 +5,7 @@ def _dedent(source):
     common_indent = None
     lines = []
     for line in source.splitlines():
-        if line.strip() == "" or line.strip() == '"""lmql' or line.strip() == "'''lmql":
+        if line.strip() in ["", '"""lmql', "'''lmql"]:
             lines.append(line)
             continue
         if common_indent is None:
@@ -37,7 +37,7 @@ def get_decorated_function_code(fct):
         end = docstring_element.end_lineno
         startcol = docstring_element.col_offset
         endcol = docstring_element.end_col_offset
-        
+
         # get source code of the function
         source = source.splitlines()
 
@@ -45,7 +45,7 @@ def get_decorated_function_code(fct):
         common_indent = None
         lines = []
         for line in source[start-1:end]:
-            if line.strip() == "" or line.strip() == '"""lmql' or line.strip() == "'''lmql" or line.strip() == "'lmql" or line.strip() == '"lmql':
+            if line.strip() in ["", '"""lmql', "'''lmql", "'lmql", '"lmql']:
                 lines.append(line)
                 continue
             if common_indent is None:

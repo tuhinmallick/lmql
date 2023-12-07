@@ -18,7 +18,7 @@ def type_schema(t):
         element_type = t.__args__[0]
         return [type_schema(element_type)]
     else:
-        assert False, "not a supported type " + str(t)
+        assert False, f"not a supported type {str(t)}"
 
 def type_schema_description(t):
     s = type_schema(t)
@@ -45,7 +45,7 @@ def type_dict_to_type_instance(data, t):
         element_type = t.__args__[0]
         return [type_dict_to_type_instance(d, element_type) for d in data]
     else:
-        assert False, "not a supported type " + str(t)
+        assert False, f"not a supported type {str(t)}"
 
 def oneshot(state):
     global is_oneshot
@@ -55,27 +55,23 @@ def extract_json(s):
     stack = []
     start = -1
     for i, c in enumerate(s):
-        if len(stack) == 0 or stack[-1] != '"':
-            if c == "{":
-                start = i if start == -1 else start
-                stack.append("{")
-            elif c == "}":
-                assert stack.pop() == "{"
-            elif c == "[":
-                start = i if start == -1 else start
-                stack.append("[")
-            elif c == "]":
-                assert stack.pop() == "["
-            elif c == '"':
-                if len(stack) > 0 and stack[-1] == '"':
-                    stack.pop()
-                else:
-                    stack.append('"')
-        else:
+        if stack and stack[-1] == '"':
             if c == '"':
                 stack.pop()
-        if len(stack) == 0 and start != -1:
-                return s[start:i+1]
+        elif c == "[":
+            start = i if start == -1 else start
+            stack.append("[")
+        elif c == "]":
+            assert stack.pop() == "["
+        elif c == "{":
+            start = i if start == -1 else start
+            stack.append("{")
+        elif c == "}":
+            assert stack.pop() == "{"
+        elif c == '"':
+            stack.append('"')
+        if not stack and start != -1:
+            return s[start:i+1]
     return s
 
 @lmql.query

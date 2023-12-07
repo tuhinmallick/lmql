@@ -18,7 +18,7 @@ class PythonBackedTokenizer:
                 "gpt"
             ]
 
-            return any([m in model_identifier for m in openai_models])
+            return any(m in model_identifier for m in openai_models)
         except:
             return False
 
@@ -37,15 +37,13 @@ class PythonBackedTokenizer:
         import gpt3_tokenizer
         text_with_bytes = "".join(tokens)
         textarr = [int(gpt3_tokenizer._entry._byte_decoder[x]) for x in list(text_with_bytes)]
-        text = bytearray(textarr).decode("utf-8")
-        return text
+        return bytearray(textarr).decode("utf-8")
 
     def tokenize(self, s, asbytes=False):
-        if asbytes:
-            ids = self(s)["input_ids"]
-            return self.decode_tokens_bytes(ids)
-        else:
+        if not asbytes:
             return self._tokenize(s)
+        ids = self(s)["input_ids"]
+        return self.decode_tokens_bytes(ids)
 
     def convert_bytes_to_string(self, token_bytes):
         ids = self.convert_token_bytes_to_ids(token_bytes)
@@ -88,10 +86,7 @@ class PythonBackedTokenizer:
 
         tokens = [[gpt3_tokenizer._entry._decoder[i] for i in gpt3_tokenizer.encode(se)] for se in s]
 
-        if unpack:
-            return tokens[0]
-        else:
-            return tokens
+        return tokens[0] if unpack else tokens
         
     def decode(self, input_ids, clean_up_tokenization_spaces=None):
         import gpt3_tokenizer
@@ -99,13 +94,13 @@ class PythonBackedTokenizer:
 
     def __call__(self, s: str, add_special_tokens=False):
         import gpt3_tokenizer
-        
+
 
         unpack = False
         if type(s) is not list:
             s = [s]
             unpack = True
-        
+
         def encode_segment(se):
             # split segment by <|endoftext|> and encode each segment
             if "<|endoftext|>" in se:
@@ -118,11 +113,8 @@ class PythonBackedTokenizer:
                 return gpt3_tokenizer.encode(se)
 
         input_ids = [encode_segment(se) for se in s]
-        
-        if unpack:
-            return {"input_ids": input_ids[0]}
-        else:
-            return {"input_ids": input_ids}
+
+        return {"input_ids": input_ids[0]} if unpack else {"input_ids": input_ids}
         
     @property
     def name(self):

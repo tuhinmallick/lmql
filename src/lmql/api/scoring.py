@@ -51,7 +51,7 @@ class ScoringResult:
             sum_scores = np.array([s.logprobs.sum() for s in self.seqs])
             return sum_scores / (seq_lens ** alpha)
         else:
-            raise ValueError("invalid aggregation: {}".format(agg))
+            raise ValueError(f"invalid aggregation: {agg}")
 
     def logprobs(self, agg="sum"):
         """
@@ -59,8 +59,7 @@ class ScoringResult:
 
         Aggregates sequence scores by the provided 'agg' method:
         """
-        normalized = nputil.log_softmax(self.scores(agg))
-        return normalized
+        return nputil.log_softmax(self.scores(agg))
 
     def probs(self, agg="sum"):
         """
@@ -77,8 +76,15 @@ class ScoringResult:
         return self.continuations[self.scores(agg=agg).argmax()]
 
     def __str__(self):        
-        return "lmql.ScoringResult(model='{}')\n".format(self.model_identifier) + \
-            "\n".join([f"-{str([c])[1:-1]}: {score}" for c,score in zip(self.continuations, self.scores(agg="sum"))])
+        return (
+            f"lmql.ScoringResult(model='{self.model_identifier}')\n"
+            + "\n".join(
+                [
+                    f"-{str([c])[1:-1]}: {score}"
+                    for c, score in zip(self.continuations, self.scores(agg="sum"))
+                ]
+            )
+        )
 
 async def dc_score(model: dc.DcModel, prompt, values, **kwargs):
     """

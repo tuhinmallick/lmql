@@ -71,13 +71,13 @@ class LMTPThreadedClient:
                 msg = self.token_queue.get()
                 if msg is None: continue
                 type, d = msg
-                
+
                 if type == "TOKEN":
                     stream_id = d["stream_id"]
                     consumers = self.iterators.get(stream_id, [])
                     for q in consumers: q.put_nowait(d)
             except Exception as e:
-                warnings.warn("failed to handle msg {}: {}".format(msg, e))
+                warnings.warn(f"failed to handle msg {msg}: {e}")
 
     async def close(self):
         for itr_list in self.iterators.values():

@@ -76,13 +76,13 @@ class Predictor(cog.BasePredictor):
                 (response_type, response_data) = await token_queue.get()
                 local_id = response_data.get('stream_id')
                 orig_id = orig_ids.get(local_id)
-                if not local_id in open_ids:
-                    if not local_id in prev_warned:
+                if local_id not in open_ids:
+                    if local_id not in prev_warned:
                         print(f'WARNING: Ignoring extra content for {local_id!r} (formerly {orig_id!r})', file=sys.stderr)
                         prev_warned.add(local_id)
                     continue
 
-                if response_type != 'TOKEN' and response_type != 'MSG':
+                if response_type not in ['TOKEN', 'MSG']:
                     print(f'WARNING: Unrecognized response type {response_type!r}; may need to be updated', file=sys.stderr)
 
                 response_data['stream_id'] = orig_id
@@ -97,7 +97,7 @@ class Predictor(cog.BasePredictor):
                     else:
                         # an error without an id attached means we're finished
                         return
-                if len(open_ids) == 0:
+                if not open_ids:
                     return
         finally:
             session.close()
@@ -122,10 +122,7 @@ class Predictor(cog.BasePredictor):
             loop.close()
 
 if __name__ == '__main__':
-    if len(sys.argv) == 2:
-        request = sys.argv[1]
-    else:
-        request = sys.stdin.read()
+    request = sys.argv[1] if len(sys.argv) == 2 else sys.stdin.read()
     args = json.loads(request)
     p = Predictor()
     print('INFO: About to run setup()...', file=sys.stderr)

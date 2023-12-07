@@ -64,9 +64,9 @@ class concurrent:
         self.task.cancel()
 
 def is_azure_chat(kwargs):
-    if not "api_config" in kwargs: return False
+    if "api_config" not in kwargs: return False
     api_config = kwargs["api_config"]
-    if not "api_type" in api_config: 
+    if "api_type" not in api_config: 
         return os.environ.get("OPENAI_API_TYPE", "azure") == "azure-chat"
     return ("api_type" in api_config and "azure-chat" in api_config.get("api_type", ""))
 
@@ -90,11 +90,15 @@ tokenizers = {}
 def tokenize(text, tokenizer, openai_byte_encoding=False):
     ids = tokenizer(text)["input_ids"]
     raw = tokenizer.decode_bytes(ids)
-    if openai_byte_encoding:
-        raw = [str(t)[2:-1] for t in raw]
-        return [t.encode("utf-8").decode("unicode_escape") if not "\\x" in t else "bytes:" + t for t in raw]
-    else:
+    if not openai_byte_encoding:
         return raw
+    raw = [str(t)[2:-1] for t in raw]
+    return [
+        t.encode("utf-8").decode("unicode_escape")
+        if "\\x" not in t
+        else f"bytes:{t}"
+        for t in raw
+    ]
 
 def tagged_segments(s):
     import re
@@ -114,23 +118,25 @@ def get_azure_config(model, api_config):
     endpoint = api_config.get("endpoint", None)
     api_type = api_config.get("api_type", os.environ.get("OPENAI_API_TYPE", ""))
 
-    if (api_type == "azure" or api_type == "azure-chat"):
+    if api_type in ["azure", "azure-chat"]:
         api_base = api_config.get("api_base", None) or os.environ.get("OPENAI_API_BASE", None)
         assert api_base is not None, "Please specify the Azure API base URL as 'api_base' or environment variable OPENAI_API_BASE"
         api_version = api_config.get("api_version", None) or os.environ.get("OPENAI_API_VERSION", "2023-05-15")
         deployment = api_config.get("api_deployment", None) or os.environ.get("OPENAI_DEPLOYMENT", model)
-        
+
         deployment_specific_api_key = f"OPENAI_API_KEY_{deployment.upper()}"
         api_key = api_config.get("api_key", None) or os.environ.get(deployment_specific_api_key, None) or os.environ.get("OPENAI_API_KEY", None)
-        assert api_key is not None, "Please specify the Azure API key as 'api_key' or environment variable OPENAI_API_KEY or {}".format(deployment_specific_api_key)
-        
+        assert (
+            api_key is not None
+        ), f"Please specify the Azure API key as 'api_key' or environment variable OPENAI_API_KEY or {deployment_specific_api_key}"
+
         is_chat = api_type == "azure-chat"
 
-        if is_chat:
-            endpoint = f"{api_base}/openai/deployments/{deployment}/chat/completions"
-        else:
-            endpoint = f"{api_base}/openai/deployments/{deployment}/completions"
-        
+        endpoint = (
+            f"{api_base}/openai/deployments/{deployment}/chat/completions"
+            if is_chat
+            else f"{api_base}/openai/deployments/{deployment}/completions"
+        )
         if api_version is not None:
             endpoint += f"?api-version={api_version}"
 
@@ -185,12 +191,14 @@ async def chat_api(**kwargs):
     api_config = kwargs.get("api_config", {})
     tokenizer = api_config.get("tokenizer")
     assert tokenizer is not None, "internal error: chat_api expects an 'api_config' with a 'tokenizer: LMQLTokenizer' mapping in your API payload"
-    
+
     max_tokens = kwargs.get("max_tokens", 0)
     if max_tokens == -1:
         kwargs.pop("max_tokens")
 
-    assert "logit_bias" not in kwargs.keys(), f"Chat API models do not support advanced constraining of the output, please use no or less complicated constraints."
+    assert (
+        "logit_bias" not in kwargs.keys()
+    ), "Chat API models do not support advanced constraining of the output, please use no or less complicated constraints."
     prompt_tokens = tokenize(kwargs["prompt"][0], tokenizer=tokenizer, openai_byte_encoding=True)
 
     timeout = kwargs.pop("timeout", 1.5)
@@ -198,7 +206,7 @@ async def chat_api(**kwargs):
     tracer: Tracer = kwargs.pop("tracer", None)
 
     if echo:
-        data = {
+        yield {
             "choices": [
                 {
                     "text": kwargs["prompt"][0],
@@ -208,18 +216,18 @@ async def chat_api(**kwargs):
                         "text_offset": [0 for t in prompt_tokens],
                         "token_logprobs": [0.0 for t in prompt_tokens],
                         "tokens": prompt_tokens,
-                        "top_logprobs": [{t: 0.0} for t in prompt_tokens]
-                    }
+                        "top_logprobs": [{t: 0.0} for t in prompt_tokens],
+                    },
                 }
             ]
         }
-        yield data
-    
     if max_tokens == 0:
         return
-    
-    assert len(kwargs["prompt"]) == 1, f"chat API models do not support batched processing"
-    
+
+    assert (
+        len(kwargs["prompt"]) == 1
+    ), "chat API models do not support batched processing"
+
     messages = []
     for s in tagged_segments(kwargs["prompt"][0]):
         role = "user"
@@ -234,7 +242,7 @@ async def chat_api(**kwargs):
             role = "user"
         else:
             print(f"warning: {tag} is not a valid tag for the OpenAI chat API. Please use one of :system, :user or :assistant.")
-        
+
         messages.append({
             "role": role, 
             "content": s["text"]
@@ -242,7 +250,7 @@ async def chat_api(**kwargs):
 
     del kwargs["prompt"]
     kwargs["messages"] = messages
-    
+
     needs_space = True # messages[-1]["content"][-1] != " "
 
     del kwargs["logprobs"]
@@ -254,7 +262,7 @@ async def chat_api(**kwargs):
 
         async with aiohttp.ClientSession() as session:
             endpoint, headers = get_endpoint_and_headers(kwargs)
-            
+
             handle = tracer.event("openai.ChatCompletion", {
                 "endpoint": endpoint,
                 "headers": headers,
@@ -264,12 +272,12 @@ async def chat_api(**kwargs):
 
             if api_config.get("verbose", False) or os.environ.get("LMQL_VERBOSE", "0") == "1" or api_config.get("chatty_openai", False):
                 print(f"openai complete: {kwargs}", flush=True)
-            
+
             async with session.post(
-                    endpoint,
-                    headers=headers,
-                    json={**kwargs},
-            ) as resp:
+                                endpoint,
+                                headers=headers,
+                                json={**kwargs},
+                        ) as resp:
                 last_chunk_time = time.time()
                 sum_chunk_times = 0
                 n_chunks = 0
@@ -295,7 +303,7 @@ async def chat_api(**kwargs):
                         chunk = chunk.decode("utf-8")
                         current_chunk += chunk
                         is_done = current_chunk.strip().endswith("[DONE]")
-                        
+
                         while "data: " in current_chunk:
                             chunks = current_chunk.split("\ndata: ")
                             while len(chunks[0]) == 0:
@@ -317,7 +325,7 @@ async def chat_api(**kwargs):
                             n_chunks += 1
                             sum_chunk_times += time.time() - last_chunk_time
                             last_chunk_time = time.time()
-                            
+
                             try:
                                 data = json.loads(complete_chunk)
                             except json.decoder.JSONDecodeError:
@@ -326,15 +334,21 @@ async def chat_api(**kwargs):
                             if "error" in data.keys():
                                 message = data["error"]["message"]
                                 if "rate limit" in message.lower():
-                                    raise OpenAIRateLimitError(message + "local client capacity" + str(Capacity.reserved))
+                                    raise OpenAIRateLimitError(
+                                        f"{message}local client capacity{str(Capacity.reserved)}"
+                                    )
                                 else:
-                                    raise OpenAIStreamError(message + " (after receiving " + str(n_chunks) + " chunks. Current chunk time: " + str(time.time() - last_chunk_time) + " Average chunk time: " + str(sum_chunk_times / max(1, n_chunks)) + ")", "Stream duration:", time.time() - stream_start)
+                                    raise OpenAIStreamError(
+                                        f"{message} (after receiving {n_chunks} chunks. Current chunk time: {str(time.time() - last_chunk_time)} Average chunk time: {str(sum_chunk_times / max(1, n_chunks))})",
+                                        "Stream duration:",
+                                        time.time() - stream_start,
+                                    )
 
                             choices = []
                             for i, c in enumerate(data["choices"]):
                                 delta = c["delta"]
                                 # skip non-content annotations for now
-                                if not "content" in delta:
+                                if "content" not in delta:
                                     if len(delta) == 0: # {} indicates end of stream
                                         choices.append({
                                             "text": "",
@@ -360,7 +374,7 @@ async def chat_api(**kwargs):
 
                                 # convert tokens to OpenAI format
                                 tokens = [str(t) for t in tokens]
-                                
+
                                 choices.append({
                                     "text": text,
                                     "index": c["index"],
@@ -375,9 +389,9 @@ async def chat_api(**kwargs):
                             data["choices"] = choices
 
                             yield data
-                        
+
                         if is_done: break
-                    
+
                 resp.close()
 
                 if current_chunk.strip() == "[DONE]":
@@ -386,9 +400,15 @@ async def chat_api(**kwargs):
                     last_message = json.loads(current_chunk.strip())
                     message = last_message.get("error", {}).get("message", "")
                     if "rate limit" in message.lower():
-                        raise OpenAIRateLimitError(message + "local client capacity" + str(Capacity.reserved))
+                        raise OpenAIRateLimitError(
+                            f"{message}local client capacity{str(Capacity.reserved)}"
+                        )
                     else:   
-                        raise OpenAIStreamError(message + " (after receiving " + str(n_chunks) + " chunks. Current chunk time: " + str(time.time() - last_chunk_time) + " Average chunk time: " + str(sum_chunk_times / max(1, n_chunks)) + ")", "Stream duration:", time.time() - stream_start)
+                        raise OpenAIStreamError(
+                            f"{message} (after receiving {str(n_chunks)} chunks. Current chunk time: {str(time.time() - last_chunk_time)} Average chunk time: {str(sum_chunk_times / max(1, n_chunks))})",
+                            "Stream duration:",
+                            time.time() - stream_start,
+                        )
                 except json.decoder.JSONDecodeError:
                     raise OpenAIStreamError("Error in API response:", current_chunk)
     
@@ -422,7 +442,7 @@ async def completion_api(**kwargs):
         batch_prompt_tokens = [tokenize(prompt, tokenizer=tokenizer, openai_byte_encoding=True) for prompt in kwargs["prompt"]]
 
         if echo:
-            data = {
+            yield {
                 "choices": [
                     {
                         "text": kwargs["prompt"][i],
@@ -432,18 +452,17 @@ async def completion_api(**kwargs):
                             "text_offset": [0 for t in prompt_tokens],
                             "token_logprobs": [0.0 for t in prompt_tokens],
                             "tokens": prompt_tokens,
-                            "top_logprobs": [{t: 0.0} for t in prompt_tokens]
-                        }
+                            "top_logprobs": [{t: 0.0} for t in prompt_tokens],
+                        },
                     }
-                for i,prompt_tokens in enumerate(batch_prompt_tokens)]
+                    for i, prompt_tokens in enumerate(batch_prompt_tokens)
+                ]
             }
-            yield data
-
     async with CapacitySemaphore(num_prompts):
         
         current_chunk = ""
         stream_start = time.time()
-        
+
 
         async with aiohttp.ClientSession() as session:
             api_config = kwargs.get("api_config", {})
@@ -457,15 +476,15 @@ async def completion_api(**kwargs):
                 "tokenizer": str(tokenizer),
                 "kwargs": kwargs
             })
-            
+
             if api_config.get("verbose", False) or os.environ.get("LMQL_VERBOSE", "0") == "1" or api_config.get("chatty_openai", False):
                 print(f"openai complete: {kwargs}", flush=True)
 
             async with session.post(
-                    endpoint,
-                    headers=headers,
-                    json={**kwargs},
-            ) as resp:
+                                endpoint,
+                                headers=headers,
+                                json={**kwargs},
+                        ) as resp:
                 last_chunk_time = time.time()
                 sum_chunk_times = 0
                 n_chunks = 0
@@ -489,7 +508,7 @@ async def completion_api(**kwargs):
                         chunk = chunk.decode("utf-8")
                         current_chunk += chunk
                         is_done = current_chunk.strip().endswith("[DONE]")
-                        
+
                         while "data: " in current_chunk:
                             chunks = current_chunk.split("\ndata: ")
                             while len(chunks[0]) == 0:
@@ -499,7 +518,7 @@ async def completion_api(**kwargs):
                                 break
                             complete_chunk = chunks[0].strip()
                             current_chunk = "\ndata: ".join(chunks[1:])
-                            
+
                             if complete_chunk.startswith("data: "):
                                 complete_chunk = complete_chunk[len("data: "):]
 
@@ -507,14 +526,14 @@ async def completion_api(**kwargs):
                                 continue
                             if complete_chunk == "[DONE]":
                                 return
-                            
+
                             if n_chunks == 0:
                                 api_stats.times["first-chunk-latency"] = api_stats.times.get("first-chunk-latency", 0) + (time.time() - stream_start)
 
                             n_chunks += 1
                             sum_chunk_times += time.time() - last_chunk_time
                             last_chunk_time = time.time()
-                            
+
                             try:
                                 data = json.loads(complete_chunk)
                             except json.decoder.JSONDecodeError:
@@ -523,27 +542,35 @@ async def completion_api(**kwargs):
                             if "error" in data.keys():
                                 message = data["error"]["message"]
                                 if "rate limit" in message.lower():
-                                    raise OpenAIRateLimitError(message + "local client capacity" + str(Capacity.reserved))
+                                    raise OpenAIRateLimitError(
+                                        f"{message}local client capacity{str(Capacity.reserved)}"
+                                    )
                                 else:
-                                    raise OpenAIStreamError(message + " (after receiving " + str(n_chunks) + " chunks. Current chunk time: " + str(time.time() - last_chunk_time) + " Average chunk time: " + str(sum_chunk_times / max(1, n_chunks)) + ")", "Stream duration:", time.time() - stream_start)
+                                    raise OpenAIStreamError(
+                                        f"{message} (after receiving {n_chunks} chunks. Current chunk time: {str(time.time() - last_chunk_time)} Average chunk time: {str(sum_chunk_times / max(1, n_chunks))})",
+                                        "Stream duration:",
+                                        time.time() - stream_start,
+                                    )
 
                             for i in range(len(data["choices"])):
                                 handle.add(f"result[{i}]", [data["choices"][i]["text"]])
 
                             yield data
-                        
+
                         if is_done: break
-                    
+
                 resp.close()
 
                 if current_chunk.strip() == "[DONE]":
                     return
-                
+
                 try:
                     last_message = json.loads(current_chunk.strip())
                     message = last_message.get("error", {}).get("message", "")
                     if "rate limit" in message.lower():
-                        raise OpenAIRateLimitError(message + "local client capacity" + str(Capacity.reserved))
+                        raise OpenAIRateLimitError(
+                            f"{message}local client capacity{str(Capacity.reserved)}"
+                        )
                     else:
                         raise OpenAIStreamError((message or str(last_message)) + " (after receiving " + str(n_chunks) + " chunks. Current chunk time: " + str(time.time() - last_chunk_time) + " Average chunk time: " + str(sum_chunk_times / max(1, n_chunks)) + ")", "Stream duration:", time.time() - stream_start)
                         # raise OpenAIStreamError(last_message["error"]["message"])

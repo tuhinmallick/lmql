@@ -51,7 +51,7 @@ class PrintingOutputWriter:
         self.clear = clear
         self.print_output = True
 
-    def add_decoder_state(*args, **kwargs): 
+    def add_decoder_state(self, **kwargs): 
         pass
 
     async def add_interpreter_head_state(self, variable, head, prompt, where, trace, is_valid, is_final, mask, num_tokens, program_variables):
@@ -70,30 +70,30 @@ class StreamingOutputWriter:
         self.variable = variable
         self.last_value = None
     
-    def add_decoder_state(*args, **kwargs): 
+    def add_decoder_state(self, **kwargs): 
         pass
 
     async def add_interpreter_head_state(self, variable, head, prompt, where, trace, is_valid, is_final, mask, num_tokens, program_variables):
-        if head == 0:
-            if self.variable is not None:
-                vars = self.variable
-                if type(vars) is not list:
-                    vars = [vars]
-                
-                value = "\n".join(program_variables.variable_values.get(v, "").strip() for v in vars)
-                    
-                if self.last_value is None:
-                    self.last_value = value
-                    print(value, end="", flush=True)
-                else:
-                    print(value[len(self.last_value):], end="", flush=True)
-                    self.last_value = value
-                return
+        if head != 0:
+            return
+        if self.variable is not None:
+            vars = self.variable
+            if type(vars) is not list:
+                vars = [vars]
 
-            if self.clear:
-                sys.stderr.write('\033c')
-                sys.stderr.flush()
-            print(f"{prompt}\n", end="\r")
+            value = "\n".join(program_variables.variable_values.get(v, "").strip() for v in vars)
+
+            if self.last_value is None:
+                print(value, end="", flush=True)
+            else:
+                print(value[len(self.last_value):], end="", flush=True)
+            self.last_value = value
+            return
+
+        if self.clear:
+            sys.stderr.write('\033c')
+            sys.stderr.flush()
+        print(f"{prompt}\n", end="\r")
             
     def add_compiler_output(self, code): pass
 

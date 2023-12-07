@@ -152,10 +152,7 @@ class LMQLContext:
     @property
     def num_calls(self):
         dcmodel = self.interpreter.dcmodel
-        if hasattr(dcmodel, 'calls'):
-            return dcmodel.calls - dcmodel.hits
-        else:
-            return 0
+        return dcmodel.calls - dcmodel.hits if hasattr(dcmodel, 'calls') else 0
 
     async def get_var(self, name):
         return self.program_state.get_program_value(name)
@@ -218,7 +215,7 @@ class LMQLResult:
     # for legacy support where decoders like 'argmax' returned a list of a single 
     # element instead of a single element (override [0] behavior)
     def __getitem__(self, key):
-        if not key == 0:
+        if key != 0:
             print("access", key)
             return super().__getitem__(key)
         warnings.warn("Deprecated result[0] access on a query result detected. Since 0.7, an argmax/sample query function with a single result returns a LMQLResult object instead of a list of a single element. Please use the results directly and not via result[0]. In the future, this will raise an error.", DeprecationWarning)
@@ -287,7 +284,7 @@ class PromptInterpreter:
             if self.root_state.query_head is not None:
                 args += (self.root_state.query_head.args, self.root_state.query_head.kwargs)
 
-        return "<PromptInterpreter {} {}({})>".format(self.user_data_key, self.name or "<none>", args)
+        return f'<PromptInterpreter {self.user_data_key} {self.name or "<none>"}({args})>'
 
     def __repr__(self):
         return self.__str__()
@@ -340,14 +337,14 @@ class PromptInterpreter:
     async def advance(self, state: PromptState):
         if state.variable is not None:
             return state
-        
+
         active_decoder_graph = dc.DecoderSequence.graph
         dc.DecoderSequence.graph = None
-        
+
         variable = state.variable
         query_args = state.query_args
         variable_args = state.variable_args
-        
+
         stmt_buffer = state.stmt_buffer
         query_args_after_last_continue = query_args
         program_variables_after_last_continue = None
@@ -361,7 +358,7 @@ class PromptInterpreter:
             nonlocal stmt_buffer, query_head, query_args_after_last_continue, program_variables_after_last_continue
 
             if len(stmt_buffer) != 0: return
-            
+
             if query_head.current_args is None:
                 query_head = query_head.copy()
                 assert query_head.fresh_copy, "query head must be fresh copy to avoid state sharing side effects"
@@ -370,15 +367,15 @@ class PromptInterpreter:
 
             qstring = query_head.current_args[0]
             query_args_after_last_continue = query_head.current_args[2] if len(query_head.current_args) > 2 else None
-            
+
             if len(query_head.current_args) > 2:
                 program_variables_after_last_continue = query_head.current_args[1]
-            
+
             stmt_buffer = qstring_to_stmts(qstring) + [advance]
 
             # return context used for last continue_
             return query_head.context
-        
+
         def format_buffer():
             return [s if type(s) is str else s.name for s in stmt_buffer if s is not advance]
 
@@ -398,14 +395,14 @@ class PromptInterpreter:
                     stmt_buffer = stmt_buffer[1:]
                     query_args = None
                     variable_args = None
-                    
+
                     # keep latest prompt in transient state
                     state = state.updated(prompt=prompt)
                 elif type(s) is TemplateVariable:
                     variable = s.name
                     query_args = query_args_after_last_continue
                     variable_args = s.variable_args(query_args)
-                   
+
                     # apply decorators
                     if "decorators" in variable_args:
                         variable_args["decorators"] = LMQLDecoratorList(variable_args["decorators"])
@@ -421,16 +418,20 @@ class PromptInterpreter:
                     if variable not in recurring_variable_counter.keys():
                         recurring_variable_counter[s.name] = -1
                     recurring_variable_counter[s.name] += 1
-                    
+
                     stmt_buffer = stmt_buffer[1:]
                     break
                 elif type(s) is DistributionVariable:
                     # distribution variables are skipped here, as they are handled in a postprocessing step after returning an LMQL result
                     # self.query_head must terminate after this part of the prompt (ensure by validation)
                     stmt_buffer = stmt_buffer[1:]
-                    assert len([s for s in stmt_buffer if s is not advance]) == 0, "error: distribution variable must be the last statement in a prompt, but found {}".format(format_buffer())
+                    assert not [
+                        s for s in stmt_buffer if s is not advance
+                    ], "error: distribution variable must be the last statement in a prompt, but found {}".format(
+                        format_buffer()
+                    )
                     distribution_reached = True
-                    # this will consume the set_distribution call
+                                # this will consume the set_distribution call
                 elif s is advance:
                     query_head: InterpretationHead = query_head.copy()
                     query_head.context = LMQLContext(self, state, prompt)
@@ -483,15 +484,19 @@ class PromptInterpreter:
         state_dict = seq.data(self.user_data_key)
         if state_dict is None and not noroot:
             return self.root_state
-        assert state_dict.interpreter is self, "error: interpreter state does not belong to this interpreter, {} vs. {} via {}".format(state_dict.interpreter, self, self.user_data_key)
-        
+        assert (
+            state_dict.interpreter is self
+        ), f"error: interpreter state does not belong to this interpreter, {state_dict.interpreter} vs. {self} via {self.user_data_key}"
+
         return state_dict
 
     async def where_for_sequence(self, s: dc.DecoderSequence, needs_masking, seqidx, return_follow_map=False, **kwargs):
         mask, logit_mask, state, max_tokens_hint = await self.where_step_for_sequence(s, needs_masking, seqidx, return_follow_map=return_follow_map, **kwargs)
 
         # check for tail and prescore
-        if hasattr(self.dcmodel, "prescore_tokens") and (not type(s) is dc.DeterministicDecoderSequence or len(s.next_ids) == 0):
+        if hasattr(self.dcmodel, "prescore_tokens") and (
+            type(s) is not dc.DeterministicDecoderSequence or len(s.next_ids) == 0
+        ):
             if has_tail(mask):
                 tail_ids = self.tokenizer.decode_bytes(self.tokenizer(mask.tail)["input_ids"])
                 if len(tail_ids) > 0:
@@ -501,7 +506,7 @@ class PromptInterpreter:
 
     async def where_step_for_sequence(self, s: dc.DecoderSequence, needs_masking, seqidx, return_follow_map=False, **kwargs):
         state = self.interpreter_state_from_user_data(s)
-        
+
         if not needs_masking:
             return None, None, self.interpreter_state_user_data(state), 0
 
@@ -513,7 +518,7 @@ class PromptInterpreter:
         program_state = state.program_state.copy()
         trace = None
         logit_mask = None
-        
+
         variable = state.variable
         variable_offset = state.variable_offset
 
@@ -526,7 +531,7 @@ class PromptInterpreter:
             logit_mask = mask.mask
             stopping_phrases = {"text": [], "tokenized": []}
             follow_trace = None
-            
+
             follow_map = fmap(
                 ("eos", (True, "fin")),
                 ("*", (False, "fin"))
@@ -571,11 +576,7 @@ class PromptInterpreter:
             follow_map = follow_trace[where] if where is not None else None
             mask = ops.create_mask(follow_map, valid, is_final)
 
-            if mask == "*": 
-                logit_mask = None
-            else:
-                logit_mask = mask.mask
-
+            logit_mask = None if mask == "*" else mask.mask
             # check stopping conditions
             stopping_conditions: List[ops.StopAtOp] = ops.execute_op_stops_at_only(state.variable, where, trace)
             for sc in stopping_conditions:
@@ -632,13 +633,13 @@ class PromptInterpreter:
         # no mask, no logits processing
         if logit_mask is None:
             return None, None, self.interpreter_state_user_data(state), max_tokens_hint
-        
+
         # translate boolean mask to logit bias mask
         if len(mask) == 1:
             logit_mask = mask.mask.argmax()
         else:
             logit_mask = np.logical_not(logit_mask) * np.finfo(np.float32).min
-        
+
         return mask, logit_mask, self.interpreter_state_user_data(state), max_tokens_hint
 
     async def where_graph_with_trace(self, where, trace, follow_trace):
@@ -672,8 +673,8 @@ class PromptInterpreter:
     async def where_processor(self, seqs, additional_logits_processor_mask, **kwargs):
         zipped_task_inputs = zip(seqs, additional_logits_processor_mask, range(len(seqs)))
         token_mask_tasks = [self.where_for_sequence(s, needs_masking, seqidx, **kwargs) for s,needs_masking, seqidx in zipped_task_inputs]
-        results = [(mask, user_data, max_tokens_hint) for mask, user_data, max_tokens_hint in await asyncio.gather(*token_mask_tasks)]        
-        
+        results = list(await asyncio.gather(*token_mask_tasks))        
+
         return TokenMask([r[0] for r in results], [r[1] for r in results], [r[2] for r in results])
 
     async def rewrite_for_sequence(self, seq: dc.DecoderSequence, needs_rewrite, assert_no_advance=False):

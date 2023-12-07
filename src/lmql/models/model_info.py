@@ -10,13 +10,13 @@ class ModelInfo:
     is_chat_model: bool = False
 
 def model_info(model_identifier):
-    if model_identifier == "openai/gpt-3.5-turbo-instruct" or model_identifier == "gpt-3.5-turbo-instruct":
+    if (
+        model_identifier
+        in ["openai/gpt-3.5-turbo-instruct", "gpt-3.5-turbo-instruct"]
+        or model_identifier not in ["openai/gpt-4", "gpt-4"]
+        and "gpt-3.5-turbo" not in model_identifier
+        and "openai/gpt-4" not in model_identifier
+    ):
         return ModelInfo(is_chat_model=False)
-    elif model_identifier == "openai/gpt-4" or model_identifier == "gpt-4":
-        return ModelInfo(is_chat_model=True)
-    elif "gpt-3.5-turbo" in model_identifier:
-        return ModelInfo(is_chat_model=True)
-    elif "openai/gpt-4" in model_identifier:
-        return ModelInfo(is_chat_model=True)
     else:
-        return ModelInfo(is_chat_model=False)
+        return ModelInfo(is_chat_model=True)

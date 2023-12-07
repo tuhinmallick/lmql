@@ -17,7 +17,7 @@ class HttpEventStreamOutputWriter(BaseOutputWriter):
     
     async def add_interpreter_head_state(self, variable, head, prompt, where, trace, is_valid, is_final, mask, num_tokens, program_variables):
         chunk = f"{json.dumps({'prompt': prompt, 'variables': program_variables.variable_values})}"
-        await self.response.write(("data: " + chunk + "\n").encode("utf-8"))
+        await self.response.write((f"data: {chunk}" + "\n").encode("utf-8"))
         await self.response.drain()
 
 async def serve(request: aiohttp.web_request.Request, q: LMQLQueryFunction, *args, output_writer_cls=HttpEventStreamOutputWriter, **kwargs):
@@ -30,15 +30,15 @@ async def serve(request: aiohttp.web_request.Request, q: LMQLQueryFunction, *arg
 
     resp.enable_chunked_encoding()
     await resp.prepare(request)
-    
+
     async def runner():
         try:
             await resp.write("data: START\n".encode("utf-8"))
             await q(*args, output_writer=output_writer_cls(resp), **kwargs)
             await resp.write("data: DONE\n".encode("utf-8"))
         except Exception as e:
-            await resp.write(("ERROR " + str(e)).encode("utf-8"))
-    
+            await resp.write(f"ERROR {str(e)}".encode("utf-8"))
+
     await runner()
 
 def endpoint(query, *args, output_writer_cls=HttpEventStreamOutputWriter, **kwargs):

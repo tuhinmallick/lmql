@@ -6,8 +6,7 @@ from lmql.ops.ops import digest, NextToken
 
 def compile_condition(c):
     q = lmql.query(f"argmax(__get_where__=True) 'Hello[TEST]' from 'openai/text-ada-001' where {c}")
-    condition = lmql.main(q)[0]
-    return condition
+    return lmql.main(q)[0]
 
 class FakeContext:
     def __init__(self, variables, variable_diffs, monotonicity):

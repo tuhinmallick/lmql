@@ -22,7 +22,9 @@ async def q():
 
 with lmql.traced("back2back") as t:
     result: lmql.LMQLResult = lmql.main(q)
-    assert len(result.variables["CONTENT"]) > 5, f"Expected CONTENT to be longer than 5 characters, got {str([result.variables['CONTENT']])}"
+    assert (
+        len(result.variables["CONTENT"]) > 5
+    ), f"Expected CONTENT to be longer than 5 characters, got {[result.variables['CONTENT']]}"
 
     cert = lmql.certificate(t)
     events = cert.asdict()["children"][0]["events"]

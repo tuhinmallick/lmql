@@ -15,10 +15,7 @@ def to_int(s: str):
         return None
     if len(s.replace(".", "")) == 0:
         return None
-    if s.count(".") > 1:
-        return None
-
-    return int(float(s)) * (-1 if is_negative else 1)
+    return None if s.count(".") > 1 else int(float(s)) * (-1 if is_negative else 1)
 
 def eq_int(a, b):
     if type(a) is str:
@@ -33,7 +30,9 @@ def is_eq_int(a, b):
     if type(b) is str:
         b = b.strip()
     if not eq_int(a, b):
-        print("assertion failure: " + f"Equality {a} == {b} does not hold, after conversion we get {to_int(a)} != {to_int(b)}")
+        print(
+            f"assertion failure: Equality {a} == {b} does not hold, after conversion we get {to_int(a)} != {to_int(b)}"
+        )
         return f"{a} != {b} X"
     return f"{a} = {b} ✓"
 

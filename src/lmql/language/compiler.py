@@ -101,7 +101,11 @@ class PromptScope(ast.NodeVisitor):
         DefinedVarsCollector(self.prologue_vars, self.defined_constraints).visit(ast.parse(query.prologue))
 
     def scope(self, query: LMQLQuery):
-        self.distribution_vars = set([query.distribution.variable_name]) if query.distribution is not None else set()    
+        self.distribution_vars = (
+            {query.distribution.variable_name}
+            if query.distribution is not None
+            else set()
+        )
         self.defined_vars = set()
         self.template_vars = set()
         self.prologue_vars = set()
@@ -154,7 +158,7 @@ class PromptScope(ast.NodeVisitor):
             assert isinstance(distribution_in_clause, ast.Compare), "compiler error: distribution clause must be an expression of shape 'distribution VAR in [val1, val2, ...]'"
             var = distribution_in_clause.left
             assert isinstance(var, ast.Name), "compiler error: distribution clause must be an expression of shape 'distribution VAR in [val1, val2, ...]'"
-            self.distribution_vars = set([var.id])
+            self.distribution_vars = {var.id}
             assert len(distribution_in_clause.comparators) == 1, "compiler error: distribution clause must be an expression of shape 'distribution VAR in [val1, val2, ...]'"
             self.query.distribution = LMQLDistributionClause(var.id, distribution_in_clause.comparators[0])
             self.scope_Constant(node.values[0])
@@ -193,9 +197,6 @@ class PromptScope(ast.NodeVisitor):
             except Exception as e:
                 print("info: failed to parse fstring expression: ", [v])
                 raise e
-                # raise RuntimeError("Failed to parse fstring expression: ", v)
-                return super().visit_Constant(node)
-
         def transform_qexpr(qexpr):
             if type(qexpr) is TemplateVariable and qexpr.name in self.distribution_vars:
                 if qexpr.decorator_exprs is not None and len(qexpr.decorator_exprs) != 0:
@@ -232,11 +233,7 @@ class PromptScope(ast.NodeVisitor):
         if get_builtin_name(name) is not None:
             return True
         # exclude Python built-ins
-        if __builtins__.get(name) is not None:
-            return True
-        if name in get_all_decoders():
-            return True
-        return False
+        return name in get_all_decoders() if __builtins__.get(name) is None else True
 
     def visit_Name(self, node: ast.Name):
         name = str(node.id)
@@ -310,12 +307,10 @@ class FunctionCallTransformation(ast.NodeTransformer):
     def visit_Await(self, node: Await) -> Any:
         super().generic_visit(node)
 
-        if type(node.value) is ast.Await:
-            return node.value
         return node.value
 
     def is_excluded_from_call_transformation(self, node):
-        if not type(node) is ast.Name: return False
+        if type(node) is not ast.Name: return False
         if ast.unparse(node).startswith("lmql.runtime_support.call"): return True
         return node.id in ["print", "eval", "locals", "globals"]
 
@@ -346,11 +341,10 @@ class PromptClauseTransformation(FunctionCallTransformation):
         self.query.prompt = [self.visit(p) for p in self.query.prompt]
 
     def visit_Expr(self, expr):
-        if type(expr.value) is ast.Constant:
-            expr.value = self.transform_Constant(expr.value)
-            return expr
-        else:
+        if type(expr.value) is not ast.Constant:
             return self.generic_visit(expr)
+        expr.value = self.transform_Constant(expr.value)
+        return expr
 
     # (remove redundant 'import lmql' statements)
     def visit_Import(self, node: Import) -> Any:
@@ -361,9 +355,9 @@ class PromptClauseTransformation(FunctionCallTransformation):
     # translate id access to context
     def visit_Name(self, node: ast.Name):
         name = str(node.id)
-        
-        if type(node.ctx) is ast.Load:
-            if name == "context":
+
+        if name == "context":
+            if type(node.ctx) is ast.Load:
                 return ast.parse("(" + yield_call("get_context", ()) + ")").body[0].value
         return node
 
@@ -414,7 +408,7 @@ class PromptClauseTransformation(FunctionCallTransformation):
             elif type(stmt) is TemplateVariable:
                 declared_template_vars.add(stmt.name)
                 compiled_qstring += str(stmt)
-                
+
                 # collect decorators, types and decoders
                 decorators += [stmt.decorator_exprs]
                 types += [(stmt.name, stmt.type_expr)]
@@ -423,7 +417,7 @@ class PromptClauseTransformation(FunctionCallTransformation):
         # empty qstrings are no-ops
         if len(compiled_qstring) == 0:
             return constant
-    
+
         # transform expressions embedded in f-strings
         qstring_as_fstring: ast.JoinedStr = ast.parse(f'f"""{compiled_qstring}"""').body[0].value
         function_call_transformer = FunctionCallTransformation()
@@ -452,13 +446,19 @@ class PromptClauseTransformation(FunctionCallTransformation):
             result_code = code_str + "\n"
 
             # result_code = f'yield context.query(f"""{compiled_qstring}""")'
-            result_code += interrupt_call('query', f'f"""{compiled_qstring}"""', "{**globals(), **locals()}", "constraints=" + result_reference, extra_args)
+            result_code += interrupt_call(
+                'query',
+                f'f"""{compiled_qstring}"""',
+                "{**globals(), **locals()}",
+                f"constraints={result_reference}",
+                extra_args,
+            )
         else:
             result_code = interrupt_call('query', f'f"""{compiled_qstring}"""', "{**globals(), **locals()}", extra_args)
 
         for v in declared_template_vars:
             get_var_call = yield_call('get_var', f'"{v}"')
-            result_code += f"\n{v} = " + get_var_call
+            result_code += f"\n{v} = {get_var_call}"
 
         return ast.parse(result_code)
     
@@ -472,22 +472,23 @@ class PromptClauseTransformation(FunctionCallTransformation):
             args = node.args
             lcls = ast.Call(ast.Name("locals", ast.Load()), [], [])
             glbs = ast.Call(ast.Name("globals", ast.Load()), [], [])
-            kwargs = [ast.Tuple([ast.Constant("__kw:" + e.arg), e.value]) for e in node.keywords]
+            kwargs = [
+                ast.Tuple([ast.Constant(f"__kw:{e.arg}"), e.value])
+                for e in node.keywords
+            ]
             r = ast.Call(attr("lmql.runtime_support.type_expr"), [ast.Constant(var_name), node.func] + [lcls, glbs] + args + kwargs, [])
-        elif type(node) is ast.Name:
-            lcls = ast.Call(ast.Name("locals", ast.Load()), [], [])
-            glbs = ast.Call(ast.Name("globals", ast.Load()), [], [])
-            r = ast.Call(attr("lmql.runtime_support.type_expr"), [ast.Constant(var_name), node] + [lcls, glbs], [])
-        elif type(node) is ast.Constant:
-            lcls = ast.Call(ast.Name("locals", ast.Load()), [], [])
-            glbs = ast.Call(ast.Name("globals", ast.Load()), [], [])
-            r = ast.Call(attr("lmql.runtime_support.type_expr"), [ast.Constant(var_name), node] + [lcls, glbs], [])
-        elif type(node) is ast.Attribute:
+        elif (
+            type(node) is ast.Name
+            or type(node) is ast.Constant
+            or type(node) is ast.Attribute
+        ):
             lcls = ast.Call(ast.Name("locals", ast.Load()), [], [])
             glbs = ast.Call(ast.Name("globals", ast.Load()), [], [])
             r = ast.Call(attr("lmql.runtime_support.type_expr"), [ast.Constant(var_name), node] + [lcls, glbs], [])
         else:
-            assert False, "compiler: not a supported type expression: '{}'".format(ast.unparse(node))
+            assert (
+                False
+            ), f"compiler: not a supported type expression: '{ast.unparse(node)}'"
 
         return ast.unparse(r)
 
@@ -545,9 +546,11 @@ class ReturnStatementTransformer(ast.NodeTransformer):
     def visit_Return(self, node):
         # handle 'return' statement with no value
         if node.value is None:
-            return ast.parse(f"yield ('result', (" + yield_call("get_return_value", ()) + "))")
+            return ast.parse(
+                "yield ('result', (" + yield_call("get_return_value", ()) + "))"
+            )
         # handle 'return' statement with value
-        return ast.parse("yield ('result', " + ast.unparse(node.value).strip() + ")")
+        return ast.parse(f"yield ('result', {ast.unparse(node.value).strip()})")
 
 class LMQLConstraintTransformation:
     def __init__(self, scope) -> None:
@@ -559,15 +562,16 @@ class LMQLConstraintTransformation:
         if bn is not None: return bn
         # check if variable is distribution variable
         if node.id in self.scope.distribution_vars:
-            raise LMQLValidationError("Distribution variable {} cannot be used in where clause.".format(node.id))
+            raise LMQLValidationError(
+                f"Distribution variable {node.id} cannot be used in where clause."
+            )
 
         # check for template variables
-        if node.id in self.scope.template_vars and not keep_variables:
-            return f"lmql.runtime_support.Var('{node.id}')"
-        else:
-            return f"lmql.runtime_support.Var('{node.id}', python_variable=True, python_value={node.id})"
-
-        return bn or node.id
+        return (
+            f"lmql.runtime_support.Var('{node.id}')"
+            if node.id in self.scope.template_vars and not keep_variables
+            else f"lmql.runtime_support.Var('{node.id}', python_variable=True, python_value={node.id})"
+        )
 
     def transform_node(self, expr, snf):
         if type(expr) is ast.BoolOp:
@@ -575,14 +579,14 @@ class LMQLConstraintTransformation:
                 ops = expr.values
                 tops = [self.transform_node(op, snf) for op in ops]
                 tops_list = ",\n  ".join([t.strip() or "None" for t in tops])
-                
+
                 Op = f"{OPS_NAMESPACE}.AndOp" if type(expr.op) is ast.And else f"{OPS_NAMESPACE}.OrOp"
                 return snf.add(f"{Op}([\n  {tops_list}\n])")
         elif type(expr) is ast.Name:
             return self.transform_name(expr)
         elif type(expr) is ast.UnaryOp:
             op = expr.op
-            
+
             Ops = {
                 ast.Not: f"{OPS_NAMESPACE}.NotOp"
             }
@@ -592,11 +596,11 @@ class LMQLConstraintTransformation:
                     operand = self.transform_node(expr.operand, snf).strip()
                     return snf.add(f"{impl}([{operand}])")
 
-            assert False, "unary operator {} not supported.".format(type(expr.op))
+            assert False, f"unary operator {type(expr.op)} not supported."
         elif type(expr) is ast.Compare:
             op = expr.ops[0]
             assert len(expr.ops) == 1, "compiler currently does not support comparison with more than one operator"
-            
+
             Ops = {
                 ast.Eq: f"{OPS_NAMESPACE}.EqOp",
                 ast.Lt: f"{OPS_NAMESPACE}.Lt",
@@ -609,36 +613,38 @@ class LMQLConstraintTransformation:
                     ops = [self.transform_node(c, snf) for c in [expr.left] + expr.comparators]
                     ops_list = ", ".join(ops).strip()
                     return snf.add(f"{impl}([{ops_list}])")
-            
+
             if is_type_constraint(expr):
                 type_name = expr.comparators[0].id
                 var_name = expr.left.args[0].id
                 return snf.add(f"{OPS_NAMESPACE}.CallOp([{LIB_NAMESPACE}.types.is_type, [{OPS_NAMESPACE}.Var('{var_name}'), {type_name}]], locals(), globals())")
                 # return snf.add(f"{LIB_NAMESPACE}.is_type([{type_name}, {OPS_NAMESPACE}.Var('{var_name}')])")
-            
-            assert False, "operator {} is not supported.".format(ast.unparse(expr))
+
+            assert False, f"operator {ast.unparse(expr)} is not supported."
         elif type(expr) is ast.Constant:
             return self.default_transform_node(expr, snf).strip()
         elif type(expr) is ast.ListComp:
             return self.default_transform_node(expr, snf).strip()
         elif type(expr) is ast.Call:
             constraint_ref = get_builtin_name(expr.func) or get_inner_constraint_ref(expr.func, self.scope)
-            
+
             if constraint_ref is not None:
                 args = [self.transform_node(a, snf) for a in expr.args]
                 args_list = ", ".join(args)
-                
+
                 keywords = {key.arg: self.transform_node(key.value, snf) for key in expr.keywords}
                 keywords_list = ", ".join([f"{k}={v}" for k,v in keywords.items()])
-                if len(keywords_list) > 0:
-                    keywords_list = ", " + keywords_list
+                if keywords_list != "":
+                    keywords_list = f", {keywords_list}"
 
                 return f"{constraint_ref}([{args_list}]{keywords_list})"
-            
+
             if is_allowed_builtin_python_call(expr.func):
                 return self.default_transform_node(expr, snf).strip()
-            
-            assert type(expr.func) is ast.Name, "In LMQL constraint expressions, only function calls to direct function references are allowed: {}".format(ast.unparse(expr))
+
+            assert (
+                type(expr.func) is ast.Name
+            ), f"In LMQL constraint expressions, only function calls to direct function references are allowed: {ast.unparse(expr)}"
             tfunc = ast.unparse(expr.func)
             targs = [self.transform_node(a, snf) for a in expr.args]
             kwargs = [f"('__kw:{e.arg}', {self.transform_node(e.value, snf)})" for e in expr.keywords]
@@ -714,59 +720,56 @@ class InlineConstraintsTransformation(LMQLConstraintTransformation):
 def is_allowed_builtin_python_call(node):
     if type(node) is not ast.Name:
         return False
-    allowed_builtin_functions = set(["set", "all"])
+    allowed_builtin_functions = {"set", "all"}
     return node.id in allowed_builtin_functions
 
 def get_inner_constraint_ref(node, scope: PromptScope):
     if type(node) is str:
         n = node
-    else:
-        if type(node) is not ast.Name:
-            return None
+    elif type(node) is ast.Name:
         n = node.id
-    
+
+    else:
+        return None
     if n in scope.defined_constraints:
-        return OPS_NAMESPACE + ".lmql_operation_registry['" + n + "']"
-    
+        return f"{OPS_NAMESPACE}.lmql_operation_registry['{n}']"
+
     return None
 
 def get_builtin_name(node, plain_python=False):
     if type(node) is str:
         n = node
-    else:
-        if type(node) is not ast.Name:
-            return None
+    elif type(node) is ast.Name:
         n = node.id
-    
+
+    else:
+        return None
     if n in lmql_operation_registry.keys():
         name = lmql_operation_registry[n]
         if type(name) is type:
-            return OPS_NAMESPACE + ".lmql_operation_registry['" + n + "']"
+            return f"{OPS_NAMESPACE}.lmql_operation_registry['{n}']"
         else:
-            return OPS_NAMESPACE + "." + name
+            return f"{OPS_NAMESPACE}.{name}"
 
     return None
 
 def is_type_constraint(expr: ast.Expr):
-    if not type(expr.left) is ast.Call:
+    if type(expr.left) is not ast.Call:
         return False
-    if not type(expr.left.func) is ast.Name:
+    if type(expr.left.func) is not ast.Name:
         return False
-    if not expr.left.func.id == "type":
+    if expr.left.func.id != "type":
         return False
-    if not type(expr.ops[0]) is ast.Is:
+    if type(expr.ops[0]) is not ast.Is:
         return False
-    if not len(expr.comparators) == 1:
+    if len(expr.comparators) != 1:
         return False
     right = expr.comparators[0]
-    if not type(right) is ast.Name:
+    if type(right) is not ast.Name:
         return False
-    if not len(expr.left.args) == 1:
+    if len(expr.left.args) != 1:
         return False
-    if not type(expr.left.args[0]) is ast.Name:
-        return False
-    
-    return True
+    return type(expr.left.args[0]) is ast.Name
 
 class DecodeClauseTransformation:
     def __init__(self, query):
@@ -782,7 +785,7 @@ class DecodeClauseTransformation:
             keyword_args = self.query.decode.keywords
             self.query.decode = LMQLDecoderConfiguration(method, keyword_args)
         else:
-            assert False, "cannot handle decode clause {} ()".format(self.query.decode, type(self.query.decode))
+            assert False, f"cannot handle decode clause {self.query.decode} ()"
 
 
         return self.query
@@ -891,10 +894,12 @@ def preprocess_text(lmql_code):
             break
         else:
             lmql_code = lmql_code[1:]
-    
+
     # remove common indent
     lines = lmql_code.split("\n")
-    common_indent = min([len(l) - len(l.lstrip()) for l in lines if len(l.strip()) > 0])
+    common_indent = min(
+        len(l) - len(l.lstrip()) for l in lines if len(l.strip()) > 0
+    )
     return "\n".join([l[common_indent:] for l in lines])
 
 def yield_call(func, *args):
@@ -918,7 +923,7 @@ class LMQLCompiler:
             try:
                 q = parser.parse(buf.readline)
             except IndentationError as e:
-                raise RuntimeError("parsing error: {}.\nFailed when parsing:\n {}".format(e, lmql_code))
+                raise RuntimeError(f"parsing error: {e}.\nFailed when parsing:\n {lmql_code}")
 
             # output file path
             basename = os.path.basename(filepath).split(".lmql")[0]
@@ -938,7 +943,7 @@ class LMQLCompiler:
             model_name = ast.unparse(q.from_ast).strip()
             model_name = model_name_aliases.get(model_name, model_name)
             if model_name[1:-1] in model_name_aliases.keys():
-                model_name = "'" + model_name_aliases[model_name[1:-1]] + "'"
+                model_name = f"'{model_name_aliases[model_name[1:-1]]}'"
 
             # resulting code
             code = None
@@ -948,9 +953,9 @@ class LMQLCompiler:
             parameters = list(sorted(list(scope.free_vars)))
 
             with PythonFunctionWriter("query", output_file, parameters, 
-                q.prologue, decorators=["lmql.compiled_query"], decorators_args=[output_variables]) as writer:
+                        q.prologue, decorators=["lmql.compiled_query"], decorators_args=[output_variables]) as writer:
                 
-                writer.add(yield_call("set_decoder", ast.unparse(q.decode.method).strip(), unparse_list(q.decode.decoding_args)))                
+                writer.add(yield_call("set_decoder", ast.unparse(q.decode.method).strip(), unparse_list(q.decode.decoding_args)))
                 writer.add(yield_call("set_model", model_name))
                 writer.add("# where")
                 writer.add(q.where)
@@ -961,12 +966,16 @@ class LMQLCompiler:
                     writer.add("# distribution")
                     # writer.add("context.set_distribution('{}', {})".format(q.distribution.variable_name, ast.unparse(q.distribution.values).strip()))
                     writer.add(yield_call("set_distribution", "\"" + q.distribution.variable_name + "\"", ast.unparse(q.distribution.values).strip()))
-                
-                writer.add(f"yield ('result', (" + yield_call("get_return_value", ()) + "))")
+
+                writer.add("yield ('result', (" + yield_call("get_return_value", ()) + "))")
 
             if q.decode.has_dump_compiled_code_flag:
                 print(writer.in_memory_contents)
 
-            return LMQLModule(output_file, lmql_code=lmql_code, output_variables=[v for v in scope.defined_vars])
+            return LMQLModule(
+                output_file,
+                lmql_code=lmql_code,
+                output_variables=list(scope.defined_vars),
+            )
         except FragmentParserError as e:
-            raise RuntimeError("parsing error: {}.\nFailed when parsing:\n {}".format(e, lmql_code))
+            raise RuntimeError(f"parsing error: {e}.\nFailed when parsing:\n {lmql_code}")

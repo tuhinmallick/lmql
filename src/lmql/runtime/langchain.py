@@ -6,6 +6,8 @@ from .loop import call_sync
 
 def chain(lmql_query_function, output_keys=None):
     from langchain.chains.base import Chain
+
+
     class LMQLChain(Chain):
         custom_output_keys: List[str]
 
@@ -15,7 +17,7 @@ def chain(lmql_query_function, output_keys=None):
         @property
         def output_keys(self) -> List[str]:
             return self.custom_output_keys
-        
+
         @property
         def input_keys(self) -> List[str]:
             return lmql_query_function.input_keys
@@ -23,23 +25,22 @@ def chain(lmql_query_function, output_keys=None):
         def _call(self, inputs: Dict[str, str]) -> Dict[str, str]:
             import asyncio
             res = call_sync(lmql_query_function, **inputs)
-            
+
             assert type(res) is not asyncio.Future, "Failed to async call lmql query function"
-            
+
             def convert_result(r):
-                if hasattr(r, "variables"):
-                    return {k:v for k,v in r.variables.items()}
-                return r
+                return dict(r.variables.items()) if hasattr(r, "variables") else r
 
             if type(res) is list:
                 res = [convert_result(r) for r in res]
             else:
                 res = convert_result(res)
-            
+
             if len(res) == 1 and type(res) is list:
                 res = res[0]
 
             return res
+
 
     return LMQLChain()
 

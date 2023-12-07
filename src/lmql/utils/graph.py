@@ -54,7 +54,9 @@ class GraphWriter:
             if hasattr(obj, "getText"):
                 print(obj.getText())
 
-            print("warning: not a support object type to be written to a graph: {} {} {}".format(type(obj), obj, info if info is not None else ""))
+            print(
+                f'warning: not a support object type to be written to a graph: {type(obj)} {obj} {info if info is not None else ""}'
+            )
             return False
 
     def node(self, obj, label=None, **kwargs):
@@ -130,8 +132,7 @@ class CytoscapeGraph:
             "edges": self.edges
         }
 
-        if return_dict: return d
-        else: return json.dumps(d, cls=StringFallbackEncoder)
+        return d if return_dict else json.dumps(d, cls=StringFallbackEncoder)
 
     def add_node(self, node_data, label=None):
         # {

@@ -76,7 +76,7 @@ class LMQLExpressionCompiler(ast.NodeTransformer):
         return node
     
     def visit_Call(self, node):
-        translated_calls = set(["inc", "dec", "fin", "var"])
+        translated_calls = {"inc", "dec", "fin", "var"}
         if type(node.func) is ast.Name and node.func.id in translated_calls:
             return ast.Call(
                 ast.Name("raw_constant"),
@@ -151,7 +151,7 @@ def run_all_tests(g):
         try:
             if k.startswith("test"): 
                 print("Running", k, "." * (40 - len(k)), end=" ")
-                
+
                 if (type(g[k]) is LMQLQueryFunction or hasattr(g[k], "lmql_code")) and g[k].is_async:
                     loop.run_until_complete(g[k]())
                 elif inspect.iscoroutinefunction(g[k]):
@@ -165,8 +165,8 @@ def run_all_tests(g):
             # find last line and file
             tb = traceback.extract_tb(e.__traceback__)
             tb = "".join(traceback.format_list(tb))
-            termcolor.cprint("FAILED\n{}".format(tb), "red")
-            termcolor.cprint("AssertionError: {}".format(e), "red")
+            termcolor.cprint(f"FAILED\n{tb}", "red")
+            termcolor.cprint(f"AssertionError: {e}", "red")
             print(e)
 
     # wait for all tasks to finish

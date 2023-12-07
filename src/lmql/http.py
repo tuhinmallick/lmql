@@ -31,22 +31,19 @@ if "LMQL_BROWSER" in os.environ:
                     p = int(p)
                 print(p, result)
                 result = result[p]
-            return result
-        else:
-            return result
+        return result
 else:
     import aiohttp
     
     async def fetch(url, path=None):
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as response:
-                if path is not None:
-                    result = await response.json()
-                    path = path.split(".")
-                    for p in path:
-                        if type(result) is list:
-                            p = int(p)
-                        result = result[p]
-                    return result
-                else:
+                if path is None:
                     return await response.text()
+                result = await response.json()
+                path = path.split(".")
+                for p in path:
+                    if type(result) is list:
+                        p = int(p)
+                    result = result[p]
+                return result

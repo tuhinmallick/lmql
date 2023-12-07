@@ -50,11 +50,9 @@ class Batcher:
         self.group()
 
     def fill_nowait(self, queue: asyncio.Queue):
-        if queue.empty():
-            pass
-        else:
+        if not queue.empty():
             try:
-                while True and len(self.tasks) < self.batch_size:
+                while len(self.tasks) < self.batch_size:
                     self.tasks.append(queue.get_nowait().kwargs)
             except asyncio.QueueEmpty:
                 pass
@@ -64,24 +62,23 @@ class Batcher:
         def get(k): 
             if k == "logit_bias": return "-".join([f"{k}={v}" for k,v in sorted(task.get(k, {}).items())])
             return str(task.get(k, "<none>"))
+
         identifier = "|".join([f"{k}={get(k)}" for k in keys])
         # check for str or int prompt
-        if isinstance(task["prompt"], str):
-            identifier += "-str"
-        else:
-            identifier += "-int"
-        
+        identifier += "-str" if isinstance(task["prompt"], str) else "-int"
         return identifier
 
     def group(self):
-        assert len(self.queued_requests) == 0, f"Batcher.groups() called before self.queued_requests was emptied"
+        assert (
+            len(self.queued_requests) == 0
+        ), "Batcher.groups() called before self.queued_requests was emptied"
 
         buckets = {}
-        
+
         for t in self.tasks:
             identifier = self.task_type(t)
             buckets.setdefault(identifier, []).append(t)
-        
+
         for bucket in buckets.values():
             kwargs = bucket[0]
             if is_chat_model(kwargs):
@@ -89,7 +86,7 @@ class Batcher:
                     self.queued_requests.append(make_request_args([t]))
                 continue
             self.queued_requests.append(make_request_args(bucket))
-        
+
         self.tasks = []
 
 def make_request_args(tasks):
@@ -98,21 +95,21 @@ def make_request_args(tasks):
     request_ids = [t["request_id"] for t in tasks]
 
     api_configs = [t.get("api_config", None) for t in tasks if t.get("api_config") is not None]
-    api_config = api_configs[0] if len(api_configs) > 0 else None
+    api_config = api_configs[0] if api_configs else None
 
     timeouts = [t.get("timeout", None) for t in tasks if t.get("timeout") is not None]
-    timeout = max(timeouts) if len(timeouts) > 0 else None
+    timeout = max(timeouts, default=None)
 
     # construct request arguments
     request_args = tasks[0].copy()
     del request_args["future"]
-    
+
     request_args["prompt"] = prompts
     request_args["futures"] = futures
     request_args["request_id"] = request_ids
     request_args["stream"] = True
     request_args["timeout"] = timeout
-    
+
     if api_config is not None: 
         request_args["api_config"] = api_config
 
@@ -153,7 +150,7 @@ class Stats:
         elif "text-curie" in model:
             return k_tokens * 0.002
         else:
-            print("warning: cost_estimate(): unknown model {}".format(model))
+            print(f"warning: cost_estimate(): unknown model {model}")
             return -1
         
 def trace_metric(request_kwargs, *args, method='add', **kwargs):
@@ -194,9 +191,11 @@ class ResponseStream:
             self.response = aiter(self.response)
             async for data in self.response:
                 if self.chaos is not None and random.random() > (1.0 - self.chaos):
-                    raise ChaosException("OpenAI API: ChaosException probabilistically triggered by chaos value {}".format(self.chaos))
-                
-                if not "choices" in data.keys():
+                    raise ChaosException(
+                        f"OpenAI API: ChaosException probabilistically triggered by chaos value {self.chaos}"
+                    )
+
+                if "choices" not in data.keys():
                     print("No choices in data", data)
                     continue
 
@@ -208,7 +207,7 @@ class ResponseStream:
                     assert c is not None
                     self.slices[index].digest(c)
                     self.slices[index].finish_reason = c["finish_reason"]
-                    
+
                     # logprobs.tokens, text, logprobs.token_logprobs
             for c in self.slices:
                 c.finish()
@@ -234,7 +233,7 @@ class response_buffer_slice:
     
     def __str__(self) -> str:
         buffered_tokens = max(0, self.buffer.num_tokens - self.lower)
-        return "<response_buffer_slice lower={} tokens_left≥{} >".format(self.lower, buffered_tokens)
+        return f"<response_buffer_slice lower={self.lower} tokens_left≥{buffered_tokens} >"
 
     def __repr__(self) -> str:
         return str(self)
@@ -288,11 +287,13 @@ class response_buffer:
             self.fixed = False
             # when provided, convert ["logprobs"]["tokens"] to token IDs automatically
             self.tokenizer = tokenizer
-            assert self.tokenizer is not None, f"response_buffer: tokenizer must be provided when using non-fixed data"
+            assert (
+                self.tokenizer is not None
+            ), "response_buffer: tokenizer must be provided when using non-fixed data"
             
 
     def __str__(self) -> str:
-        return "<response_buffer num_tokens={} iterator={}>".format(self.num_tokens, self.iterator)
+        return f"<response_buffer num_tokens={self.num_tokens} iterator={self.iterator}>"
     
     @classmethod
     def singleton(cls, text=None, text_offset=None, token_logprob=None, token=None, top_logprobs=None):
@@ -384,21 +385,21 @@ class ResponseStreamSliceIterator:
         if len(self.consumed_tokens) > 0:
             prompt = self.consumed_tokens
             if type(prompt[0]) is str:
-                recovery_kwargs["prompt"] = "".join([t for t in prompt])
+                recovery_kwargs["prompt"] = "".join(list(prompt))
             else:
                 recovery_kwargs["prompt"] = [t[0] for t in prompt]
-        
+
         # issue new completion call
         new_slice = await self.slice.stream.scheduler.complete(**recovery_kwargs)
         new_it = ResponseStreamSliceIterator(new_slice)
         new_it.retries = self.retries + 1
 
         # print("recovery for request with ID", recovery_kwargs["request_id"])
-        
+
         # skip as many data packets as necessary to get to the original point of failure
         while len(new_it.consumed_tokens) < len(self.consumed_tokens):
             last_data = await anext(new_it)
-            
+
             # if last chunk of new stream is too long, we return a partial chunk to align
             if len(new_it.consumed_tokens) > len(self.consumed_tokens):
                 offset = len(new_it.consumed_tokens) - len(self.consumed_tokens)
@@ -416,7 +417,7 @@ class ResponseStreamSliceIterator:
                 self.consumed_tokens = new_it.consumed_tokens
                 self.slice = new_slice
                 self.retries = new_it.retries
-                
+
                 return partial_data
         self.text = new_it.text
         self.consumed_tokens = new_it.consumed_tokens
@@ -478,22 +479,21 @@ class ResponseStreamSliceIterator:
             if data is None:
                 if self.slice.done.is_set():
                     raise StopAsyncIteration
+                if self.slice.finish_reason == "length":
+                    self.slice.done.set()
+                    raise StopAsyncIteration
                 else:
-                    if self.slice.finish_reason != "length":
-                        # return eos token as last item, if stream did not finish due to length
-                        data = {
-                            "text": "<|endoftext|>",
-                            "logprobs": {
-                                "text_offset": [0],
-                                "token_logprobs": [0.0],
-                                "tokens": ["<|endoftext|>"],
-                                "top_logprobs": [{"<|endoftext|>": 0.0}]
-                            }
+                    # return eos token as last item, if stream did not finish due to length
+                    data = {
+                        "text": "<|endoftext|>",
+                        "logprobs": {
+                            "text_offset": [0],
+                            "token_logprobs": [0.0],
+                            "tokens": ["<|endoftext|>"],
+                            "top_logprobs": [{"<|endoftext|>": 0.0}]
                         }
-                        self.slice.done.set()
-                    else:
-                        self.slice.done.set()
-                        raise StopAsyncIteration
+                    }
+                    self.slice.done.set()
             # exceptions that are queued are definitive (all retries failed)
             if isinstance(data, Exception): raise data
             # RecoveryAttempt indicates that the underlying stream errored out and we need to recover (still retries left)
@@ -514,7 +514,7 @@ class ResponseStreamSliceIterator:
                     print("Cannot recover from stream error without a configured tokenizer", flush=True)
                     raise attempt.error
                 return await self.recover()
-            
+
             self.consumed_tokens += data["logprobs"]["tokens"]
             self.text += data["text"]
 
@@ -536,15 +536,15 @@ class ResponseStreamSlice:
         self.itr = None
 
     def digest(self, data):
-        assert not self.failed, f"digest called on failed slice"
+        assert not self.failed, "digest called on failed slice"
         self.data_queue.put_nowait(data)
 
     def finish(self):
-        assert not self.failed, f"finish called on failed slice"
+        assert not self.failed, "finish called on failed slice"
         self.data_queue.put_nowait(None)
 
     def error(self, error):
-        assert not self.failed, f"error called on failed slice"
+        assert not self.failed, "error called on failed slice"
         self.failed = True
         self.data_queue.put_nowait(RecoveryAttempt(self.kwargs, error, self.maximum_retries))
 
@@ -568,30 +568,35 @@ class RequestQueueItem:
 class AsyncOpenAIAPI:
     def __init__(self):
         self.maximum_retries = 20
-        
+
         self.complete_api_call_queue = asyncio.PriorityQueue()
         self.complete_api_worker = asyncio.create_task(self.api_complete_worker(self.complete_api_call_queue))
-        
+
         self.request_ctr = 0
         self.request_ctr_offset = 1000000000
-        
+
         self.complete_request_queue = asyncio.Queue()
-        self.complete_request_workers = [asyncio.create_task(self.complete_request_worker(self.complete_request_queue)) for i in range(5)]
-        
+        self.complete_request_workers = [
+            asyncio.create_task(
+                self.complete_request_worker(self.complete_request_queue)
+            )
+            for _ in range(5)
+        ]
+
         self.worker_loops = set()
 
         self.stats_logger = None 
-        
+
         # chaos debugging (introduces random failures in the OpenAI API)
         self.chaos = None
         self.warned_about_chaos = False
-        
+
         self.batch_size = 20
         self.maximum_collection_period = 0.05
 
         self.stats = Stats()
         self.nostream = False
-    
+
         self.tokenizer = None
         self.futures = set()
 
@@ -622,23 +627,29 @@ class AsyncOpenAIAPI:
         self.warn_chaos()
 
     def __del__(self):
-        if hasattr(self, "stats_logger") and self.stats_logger is not None:
-            self.stats_logger.cancel()
-        
-            # cancel the score worker task
-            self.complete_api_worker.cancel()
-            for worker in self.complete_request_workers:
-                worker.cancel()
-            try:
-                loop = asyncio.get_event_loop()
-                while not all([t.done() for t in (self.complete_request_workers + [self.complete_api_worker])]):
-                    loop._run_once()
-            except:
-                pass # if no more event loop is around, no need to wait for the workers to finish
+        if not hasattr(self, "stats_logger") or self.stats_logger is None:
+            return
+        self.stats_logger.cancel()
+
+        # cancel the score worker task
+        self.complete_api_worker.cancel()
+        for worker in self.complete_request_workers:
+            worker.cancel()
+        try:
+            loop = asyncio.get_event_loop()
+            while not all(
+                t.done()
+                for t in (
+                    self.complete_request_workers + [self.complete_api_worker]
+                )
+            ):
+                loop._run_once()
+        except:
+            pass # if no more event loop is around, no need to wait for the workers to finish
 
     async def api_complete_worker(self, queue):
         while True:
-            self.futures = set([f for f in self.futures if not f.done()])
+            self.futures = {f for f in self.futures if not f.done()}
             while Capacity.reserved >= Capacity.total * 0.8:
                 # print("wait before queing more requests", flush=True)
                 await asyncio.sleep(0.1)
@@ -660,13 +671,11 @@ class AsyncOpenAIAPI:
         return first_buffered(res, first)
 
     def is_definitive_error(self, e):
-        if "logit biases, but can provide at most" in str(e):
-            return True
-        return False
+        return "logit biases, but can provide at most" in str(e)
 
     async def complete_request_worker(self, queue: asyncio.Queue):
         self.worker_loops.add(asyncio.get_running_loop())
-        
+
         while True:
             try:
                 kwargs = await queue.get()
@@ -676,7 +685,7 @@ class AsyncOpenAIAPI:
                 while True:
                     try:
                         if retries != self.maximum_retries:
-                            warnings.warn("Retrying {} more times".format(retries), category=OpenAIAPIWarning)
+                            warnings.warn(f"Retrying {retries} more times", category=OpenAIAPIWarning)
                             await asyncio.sleep(0.5)
                         task = asyncio.create_task(self._create(**kwargs))
                         res = await asyncio.wait_for(task, timeout=5.5)
@@ -687,8 +696,8 @@ class AsyncOpenAIAPI:
                         if type(e) is OpenAIAPILimitationError:
                             raise e
                         self.stats.errors += 1
-                        retries -= 1            
-                        warnings.warn("OpenAI: " + str(e) + ' "' + str(type(e)) + '"', category=OpenAIAPIWarning)
+                        retries -= 1
+                        warnings.warn(f'OpenAI: {str(e)} "{str(type(e))}"', category=OpenAIAPIWarning)
                         # do not retry if the error is definitive (API configuration error)
                         if "api.env" in str(e): raise e
                         # handle definitive errors
@@ -702,7 +711,7 @@ class AsyncOpenAIAPI:
                             raise e
                         if type(e) is TimeoutError or type(e) is OpenAIRateLimitError:
                             t = (2.0 * random.random()) ** (self.maximum_retries - retries)
-                            warnings.warn("Backing off for {} seconds".format(t), category=OpenAIAPIWarning)
+                            warnings.warn(f"Backing off for {t} seconds", category=OpenAIAPIWarning)
                             await asyncio.sleep(t)
             except asyncio.CancelledError as e:
                 break
@@ -719,27 +728,34 @@ class AsyncOpenAIAPI:
                 future.set_result(rsi.view(i))
 
     async def complete(self, request_id=None, **kwargs):
-        assert "prompt" in kwargs, f"bopenai requires prompt to be set"
+        assert "prompt" in kwargs, "bopenai requires prompt to be set"
 
         # check for workers
         if len(self.complete_request_workers) == 0:
-            raise APIShutDownException(f"bopenai requires at least one worker to be running to issue new complete requests.")
+            raise APIShutDownException(
+                "bopenai requires at least one worker to be running to issue new complete requests."
+            )
 
         loop = asyncio.get_running_loop()
 
         result_fut = loop.create_future()
         self.futures.add(result_fut)
 
-        assert loop in self.worker_loops, f"bopenai requires the current event loop to be running in one of the worker threads"
+        assert (
+            loop in self.worker_loops
+        ), "bopenai requires the current event loop to be running in one of the worker threads"
 
         if request_id is None:
             request_id = self.request_ctr
             self.request_ctr += 1
         else:
-            warnings.warn("OpenAI request with ID {} failed (timeout or other error) and will be retried".format(request_id), category=OpenAIAPIWarning)
-        
+            warnings.warn(
+                f"OpenAI request with ID {request_id} failed (timeout or other error) and will be retried",
+                category=OpenAIAPIWarning,
+            )
+
         kwargs = {"future": result_fut, "request_id": request_id, **kwargs}
-        
+
         if "logit_bias" in kwargs and len(kwargs["logit_bias"]) > 300:
             biases = list(kwargs["logit_bias"].items())
             # make sure to always include eos if set and truncating
@@ -750,15 +766,19 @@ class AsyncOpenAIAPI:
             global logit_bias_logging
             if logit_bias_logging:
                 warnings.warn("the required logit_bias is too large to be handled by the OpenAI API and will be limited to the first 300 tokens. This can lead to the violation of the provided constraints or undesired model output. To avoid this use less broad or no constraints.", category=OpenAILogitBiasLimitationWarning)
-            kwargs["logit_bias"] = {t:b for t,b in biases}
+            kwargs["logit_bias"] = dict(biases)
 
-        assert kwargs.get("echo", False), f"bopenai requires echo=True for to enable proper error recovery. Please handle proper prompt removal in client code."
+        assert kwargs.get(
+            "echo", False
+        ), "bopenai requires echo=True for to enable proper error recovery. Please handle proper prompt removal in client code."
 
         r = RequestQueueItem(kwargs, request_id)
         await self.complete_api_call_queue.put(r)
         self.request_ctr += 1
         if not self.is_available():
-            raise APIShutDownException(f"bopenai requires at least one worker to be running to issue new complete requests.")
+            raise APIShutDownException(
+                "bopenai requires at least one worker to be running to issue new complete requests."
+            )
         return await result_fut
 
     def is_available(self):
