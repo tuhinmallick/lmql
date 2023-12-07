@@ -50,23 +50,23 @@ async def test_env_invalid_api_and_org():
     await run_with_env_vars("abc", "org-abc", "Incorrect API key provided")
 
 async def run_with_api_env(api_key, org, expected_error):
-    with tempfile.TemporaryDirectory() as tmpdir:
-        os.chdir(tmpdir)
+     with tempfile.TemporaryDirectory() as tmpdir:
+          os.chdir(tmpdir)
 
-        with open("api.env", "w") as f:
-            if api_key is not None:
-                f.write("openai-secret: {}\n".format(api_key))
-            if org is not None:
-                f.write("openai-org: {}\n".format(org))
+          with open("api.env", "w") as f:
+               if api_key is not None:
+                    f.write(f"openai-secret: {api_key}\n")
+               if org is not None:
+                    f.write(f"openai-org: {org}\n")
 
-        with open("f.lmql", "w") as f:
-            f.write(LMQL_FILE.strip())
+          with open("f.lmql", "w") as f:
+              f.write(LMQL_FILE.strip())
 
-        env = os.environ.copy()
+          env = os.environ.copy()
 
-        env.pop("OPENAI_API_KEY", None)
+          env.pop("OPENAI_API_KEY", None)
 
-        assert_output_has_error(["lmql", "run", "f.lmql"], expected_error, env=env)
+          assert_output_has_error(["lmql", "run", "f.lmql"], expected_error, env=env)
 
 async def run_with_env_vars(api_key, org, expected_error):
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -87,28 +87,34 @@ async def run_with_env_vars(api_key, org, expected_error):
 
 
 def assert_output_has_error(cmd, expected_error, env):
-        env["HOME"] = "."
-        
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
-        has_error = False
-        output = ""
-        
-        for line in list(p.stdout) + list(p.stderr):
-            line = line.decode("utf-8").strip()
-            output += line + "\n"
-            if expected_error is not None and expected_error in line:
-                has_error = True
-                p.terminate()
-        
-        # print(output)
+     env["HOME"] = "."
 
-        # get exit code
-        p.wait()
-        if expected_error is None:
-            assert p.returncode == 0, "Expected process to exit with code 0, but got {} with output:\n{}".format(p.returncode, output)
-        else:
-            assert has_error, "Expected process output to contain '{}', but got {}".format(expected_error, output)
-            assert p.returncode != 0, "Expected process to exit with non-zero code, but got {}".format(p.returncode)
+     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+     has_error = False
+     output = ""
+
+     for line in list(p.stdout) + list(p.stderr):
+         line = line.decode("utf-8").strip()
+         output += line + "\n"
+         if expected_error is not None and expected_error in line:
+             has_error = True
+             p.terminate()
+
+     # print(output)
+
+     # get exit code
+     p.wait()
+     if expected_error is None:
+          assert (
+              p.returncode == 0
+          ), f"Expected process to exit with code 0, but got {p.returncode} with output:\n{output}"
+     else:
+          assert (
+              has_error
+          ), f"Expected process output to contain '{expected_error}', but got {output}"
+          assert (
+              p.returncode != 0
+          ), f"Expected process to exit with non-zero code, but got {p.returncode}"
         
 
 if __name__ == "__main__":

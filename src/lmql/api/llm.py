@@ -100,20 +100,17 @@ class LLM:
         to OpenAI API request logging.
         """
         kwargs["model"] = self
-        
+
         if max_tokens is not None:
             kwargs["chunksize"] = max_tokens
             max_tokens = max_tokens + 1
-        
+
         name = "lmql.generate".format("...", max_tokens, kwargs)
         result = await generate_query(prompt, max_tokens=max_tokens, __name__=name, **kwargs)
 
         if len(result) == 0:
             raise ValueError("No result returned from query")
-        if len(result) == 1:
-            return result[0]
-        else:
-            return result
+        return result[0] if len(result) == 1 else result
 
     def generate_sync(self, *args, **kwargs):
         """
@@ -134,7 +131,7 @@ class LLM:
         """
         try:
             dcmodel = self.adapter.get_dclib_model()
-            with traced(str(self) + ".score"):
+            with traced(f"{str(self)}.score"):
                 with dc.Context(None, self.adapter.get_tokenizer(), dcmodel.truncation_threshold):
                     return await dc_score(dcmodel, prompt, values, **kwargs)
         finally:
@@ -172,7 +169,7 @@ class LLM:
         # do nothing if already a descriptor
         if type(model_identifier) is LLM:
             return model_identifier
-        
+
         # check for built-in model name aliases
         if model_identifier in model_name_aliases:
             model_identifier = model_name_aliases[model_identifier]
@@ -186,7 +183,7 @@ class LLM:
         if model_identifier == "<dynamic>":
             global default_model
             model_identifier = default_model
-        
+
         endpoint = kwargs.pop("endpoint", None)
 
         if model_identifier.startswith("openai/"):
@@ -217,12 +214,14 @@ class LLM:
                     if os.path.exists(tokenizer_path):
                         kwargs["tokenizer"] = tokenizer_path
                     else:
-                        warnings.warn("File tokenizer.model not present in the same folder as the model weights. Using default '{}' tokenizer for all llama.cpp models. To change this, set the 'tokenizer' argument of your lmql.model(...) object.".format("huggyllama/llama-7b", UserWarning))
+                        warnings.warn(
+                            "File tokenizer.model not present in the same folder as the model weights. Using default 'huggyllama/llama-7b' tokenizer for all llama.cpp models. To change this, set the 'tokenizer' argument of your lmql.model(...) object."
+                        )
                         kwargs["tokenizer"] = kwargs.get("tokenizer", "huggyllama/llama-7b")
 
             if model_identifier.startswith("replicate:"):
                 model_identifier = model_identifier[10:]
-                endpoint = "replicate:" + model_identifier
+                endpoint = f"replicate:{model_identifier}"
 
             # determine endpoint URL
             if endpoint is None:
@@ -237,17 +236,20 @@ class LLM:
                 Model = inprocess(model_identifier, use_existing_configuration=True, **kwargs)
             else:
                 Model = lmtp_model(model_identifier, endpoint=endpoint, **kwargs)
-            
+
             return cls(original_name, adapter=Model(), configuration=configuration)
 
 """
 The default model for workloads or queries that do not specify 
 a model explicitly.
 """
-default_model = os.environ.get("LMQL_DEFAULT_MODEL", 
-                               # otherwise use 'openai/gpt-3.5-turbo-instruct' (in browser, we use 
-                               # openai/text-davinci-003, because 3.5 tokenizers are not supported in the browser)
-                               "openai/gpt-3.5-turbo-instruct" if not "LMQL_BROWSER" in os.environ else "openai/text-davinci-003")
+
+default_model = os.environ.get(
+    "LMQL_DEFAULT_MODEL",
+    "openai/gpt-3.5-turbo-instruct"
+    if "LMQL_BROWSER" not in os.environ
+    else "openai/text-davinci-003",
+)
 
 def get_default_model() -> Union[str, LLM]:
     """
@@ -365,11 +367,11 @@ def resolve_user_shorthands(self, model_name):
                 if line.strip().startswith("#"):
                     continue
                 shorthand, replacement = line.split(" ", 1)
-                
-                if model_name == shorthand or model_name == "local:" + shorthand:
+
+                if model_name in [shorthand, f"local:{shorthand}"]:
                     # remember if we use the shorthand with local: prefix
                     is_local = model_name.startswith("local:")
-                    
+
                     if replacement.startswith("lmql.model("):
                         # save lmql.model literal evaluation
                         parsed = ast.parse(replacement).body[0].value
@@ -381,7 +383,7 @@ def resolve_user_shorthands(self, model_name):
                         return model(*args, **kwargs)
                     else:
                         if is_local:
-                            replacement = "local:" + replacement
+                            replacement = f"local:{replacement}"
                         return replacement.rstrip()
     except Exception as e:
         warnings.warn("Failed to read ~/.lmql/models shorthand file.", UserWarning)

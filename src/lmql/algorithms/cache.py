@@ -26,7 +26,7 @@ def set_cache(path):
             with open(cache_file, "rb") as f:
                 cache = pickle.load(f)
         except:
-            warnings.warn("warning: failed to load cache file {}".format(cache_file))
+            warnings.warn(f"warning: failed to load cache file {cache_file}")
             cache = {}
     else:
         cache = {}
@@ -60,10 +60,7 @@ async def apply(q, *args, **kwargs):
 
     # handle non-LMQL queries
     if type(q) is not LMQLQueryFunction and not hasattr(q, "__lmql_query_function__"):
-        if inspect.iscoroutinefunction(q):
-            return await q(*args)
-        return q(*args)
-
+        return await q(*args) if inspect.iscoroutinefunction(q) else q(*args)
     global stats
     stats["total"] += 1
 
@@ -75,9 +72,11 @@ async def apply(q, *args, **kwargs):
         key = (lmql_code, *key_args).__hash__()
         key = (lmql_code, *key_args)
     except:
-        warnings.warn("warning: cannot hash LMQL query arguments {}. Change the argument types to be hashable.".format(args))
+        warnings.warn(
+            f"warning: cannot hash LMQL query arguments {args}. Change the argument types to be hashable."
+        )
         key = str(lmql_code) + str(args)
-    
+
     if cache is not None and key in cache.keys():
         stats["cached"] += 1
         return cache[key]
@@ -94,11 +93,11 @@ async def apply(q, *args, **kwargs):
                 cache[key] = result
                 persist_cache()
         except Exception as e:
-            print("Failed for args: {} {}".format(args, kwargs), flush=True)
+            print(f"Failed for args: {args} {kwargs}", flush=True)
             raise e
 
         return result
 
 def get_stats():
     global stats
-    return "lmql.algorithms Stats: Total queries: {}, Cached queries: {}".format(stats["total"], stats["cached"])
+    return f'lmql.algorithms Stats: Total queries: {stats["total"]}, Cached queries: {stats["cached"]}'

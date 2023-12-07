@@ -45,7 +45,7 @@ def lmtp_balance(workers, host, port):
         # bidirectional websocket 
         ws = web.WebSocketResponse()
         await ws.prepare(request)
-        
+
         worker_ws_connection = None
 
         # select worker
@@ -54,9 +54,9 @@ def lmtp_balance(workers, host, port):
             try:
                 async with aiohttp.ClientSession() as session:
                     # start websocket session with / endpoint
-                    async with session.ws_connect("ws://" + worker.endpoint) as worker_ws:
+                    async with session.ws_connect(f"ws://{worker.endpoint}") as worker_ws:
                         worker_ws_connection = worker_ws
-                        
+
                         async def worker_to_client():
                             async for msg in worker_ws:
                                 if msg.type == aiohttp.WSMsgType.TEXT:
@@ -71,11 +71,10 @@ def lmtp_balance(workers, host, port):
                                 elif msg.type == aiohttp.WSMsgType.ERROR:
                                     worker_ws.close()
                                     break
-                        
+
                         done, pending = await asyncio.wait([worker_to_client(), client_to_worker()], return_when=asyncio.FIRST_COMPLETED)
                         for task in pending:
                             task.cancel()
-            # handle ConnectionResetError
             except ConnectionResetError:
                 pass
             except Exception as e:
@@ -92,7 +91,7 @@ def lmtp_balance(workers, host, port):
 
     app = web.Application()
     app.add_routes([web.get('/', stream)])
-    
+
     def web_print(*args):
         if len(args) == 1 and args[0].startswith("======== Running on"):
             print(f"[Serving LMTP balancer on ws://{host}:{port}/]")

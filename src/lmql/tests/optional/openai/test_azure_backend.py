@@ -52,14 +52,30 @@ async def test_key_via_env():
     await run_with_lmql_model(AZURE_API_BASE, "azure-chat", None, None, extra_env={"OPENAI_API_KEY": AZURE_API_KEY})
 
 async def test_key_via_env_deployment():
-    await run_with_lmql_model(AZURE_API_BASE, "azure-chat", None, None, extra_env={"OPENAI_API_KEY_" + AZURE_DEPLOYMENT.upper(): AZURE_API_KEY})
+    await run_with_lmql_model(
+        AZURE_API_BASE,
+        "azure-chat",
+        None,
+        None,
+        extra_env={
+            f"OPENAI_API_KEY_{AZURE_DEPLOYMENT.upper()}": AZURE_API_KEY
+        },
+    )
 
 async def test_key_via_env_wrong_deployment():
-    await run_with_lmql_model(AZURE_API_BASE, "azure-chat", None, "Please specify the Azure API key as 'api_key' or environment variable", extra_env={"OPENAI_API_KEY_WRONG_" + AZURE_DEPLOYMENT.upper(): AZURE_API_KEY})
+    await run_with_lmql_model(
+        AZURE_API_BASE,
+        "azure-chat",
+        None,
+        "Please specify the Azure API key as 'api_key' or environment variable",
+        extra_env={
+            f"OPENAI_API_KEY_WRONG_{AZURE_DEPLOYMENT.upper()}": AZURE_API_KEY
+        },
+    )
 
 
 async def run_with_lmql_model(api_base, api_type, api_key, expected_error, extra_env = {}):
-    model_name = 'openai/' + AZURE_DEPLOYMENT
+    model_name = f'openai/{AZURE_DEPLOYMENT}'
     api_key_mapping = f"api_key=\"{api_key}\"" if api_key is not None else ""
     api_base_mapping = f"api_base=\"{api_base}\", " if api_base is not None else ""
     model_str = f'lmql.model("{model_name}", api_type="{api_type}", {api_base_mapping} {api_key_mapping})'
@@ -105,27 +121,33 @@ async def run_with_env_vars(api_key, api_base, api_type, expected_error):
 
 
 def assert_output_has_error(cmd, expected_error, env):
-        env["HOME"] = "."
-        
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
-        has_error = False
-        output = ""
-        
-        for line in list(p.stdout) + list(p.stderr):
-            line = line.decode("utf-8").strip()
-            output += line + "\n"
-            if expected_error is not None and expected_error in line:
-                has_error = True
-                p.terminate()
-                return
-        
-        # get exit code
-        p.wait()
-        if expected_error is None:
-            assert p.returncode == 0, "Expected process to exit with code 0, but got {} with output:\n\n{}".format(p.returncode, output)
-        else:
-            assert has_error, "Expected process output to contain '{}', but got {}".format(expected_error, output)
-            assert p.returncode != 0, "Expected process to exit with non-zero code, but got {}".format(p.returncode)
+    env["HOME"] = "."
+
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+    has_error = False
+    output = ""
+
+    for line in list(p.stdout) + list(p.stderr):
+        line = line.decode("utf-8").strip()
+        output += line + "\n"
+        if expected_error is not None and expected_error in line:
+            has_error = True
+            p.terminate()
+            return
+
+    # get exit code
+    p.wait()
+    if expected_error is None:
+        assert (
+            p.returncode == 0
+        ), f"Expected process to exit with code 0, but got {p.returncode} with output:\n\n{output}"
+    else:
+        assert (
+            has_error
+        ), f"Expected process output to contain '{expected_error}', but got {output}"
+        assert (
+            p.returncode != 0
+        ), f"Expected process to exit with non-zero code, but got {p.returncode}"
         
 
 if __name__ == "__main__":

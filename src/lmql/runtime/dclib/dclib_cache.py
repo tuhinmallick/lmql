@@ -28,7 +28,9 @@ class CacheFile:
             with open(self.filename, "rb") as f:
                 cache = pickle.load(f)
                 if cache.get("model") != self.model:
-                    print("warning: cache file is from a different model. Its contents will be overwritten. {} != {}".format(cache["model"], self.model))
+                    print(
+                        f'warning: cache file is from a different model. Its contents will be overwritten. {cache["model"]} != {self.model}'
+                    )
                 else:
                     return cache.get(str(self.initial_ids), {})
         return {}
@@ -38,16 +40,20 @@ class CacheFile:
             with open(self.filename, "rb") as f:
                 existing_cache = pickle.load(f)
                 if existing_cache.get("model") != self.model:
-                    print("warning: cache file is from a different model. Its contents will be overwritten. {} != {}".format(cache.get("model"), self.model))
+                    print(
+                        f'warning: cache file is from a different model. Its contents will be overwritten. {cache.get("model")} != {self.model}'
+                    )
                     existing_cache = {}
         else:
             existing_cache = {}
         if "model" in existing_cache.keys() and existing_cache["model"] != self.model:
-            print("warning: cache file is from a different model. Its contents will be overwritten. {} != {}".format(existing_cache.get("model"), self.model))
+            print(
+                f'warning: cache file is from a different model. Its contents will be overwritten. {existing_cache.get("model")} != {self.model}'
+            )
             existing_cache = {}
         existing_cache["model"] = self.model
         existing_cache[str(self.initial_ids)] = {k: v for k,v in cache.items() if not any(asyncio.isfuture(v) for v in v)}
-        
+
         with open(self.filename, "wb") as f:
             pickle.dump(existing_cache, f)
 
@@ -62,7 +68,7 @@ class CachedDcModel(DcModelRewriteMixin, CacheDelegate):
     
     def __new__(cls, delegate: DcModel, initial_prompt_ids=None, cache_file=None, show_speculative=False):
         mc = super().__new__(cls)
-        
+
         mc.delegate: DcModel = delegate
 
         # setup cache delegate
@@ -73,7 +79,7 @@ class CachedDcModel(DcModelRewriteMixin, CacheDelegate):
         # from the underlying model
         mc.token_streams = []
         mc.token_stream_errors = []
-        
+
         mc.cache = {}
         mc.user_data_cache = {}
         mc.cache_lock = asyncio.Lock()
@@ -81,11 +87,11 @@ class CachedDcModel(DcModelRewriteMixin, CacheDelegate):
         mc.mask_cache = {}
         mc.show_speculative = show_speculative
         mc.initial_ids = initial_prompt_ids
-        
+
         mc.input_id_key_offset = len(initial_prompt_ids) if initial_prompt_ids else 0
         mc.initial_prompt_ids = initial_prompt_ids
         mc.cache["model"] = delegate.model_identifier
-    
+
         mc.calls = 0
         mc.hits = 0
 
@@ -95,8 +101,6 @@ class CachedDcModel(DcModelRewriteMixin, CacheDelegate):
             mc.cache = CacheFile(cache_file, initial_prompt_ids, delegate.model_identifier).load()
         except Exception as e:
             print("error: failed to load token cache from file", e)
-            pass
-
         return mc
     
     @property
@@ -117,8 +121,6 @@ class CachedDcModel(DcModelRewriteMixin, CacheDelegate):
             except Exception as e:
                 print("error: failed to save token cache to file", e, flush=True)
                 print([e])
-                pass
-
         self.model.cache_delegate = None
         for ts in self.token_streams:
             ts.cancel()
@@ -163,7 +165,7 @@ class CachedDcModel(DcModelRewriteMixin, CacheDelegate):
             dc_edge_type = s.data("dc-edge-type")
             # if the edge type aligns with dc-edge-type, use that instead (includes a unique sample id if available)
             if dc_edge_type.startswith(edge_type):
-                if not dc_edge_type in reuse_context:
+                if dc_edge_type not in reuse_context:
                     reuse_context.add(dc_edge_type)
                     edge_type = dc_edge_type
 
@@ -202,7 +204,7 @@ class CachedDcModel(DcModelRewriteMixin, CacheDelegate):
                         unpacked_argmax_token = unpack(argmax_token)
                         if type(unpacked_argmax_token) is int and masks.mask_is_allowed(mask, unpacked_argmax_token):
                             keys.append((self.base_key(s), "top-1"))
-                    
+
                     keys.append((self.base_key(s), edge_type, "-".join([str(i) for i in np.where(mask >= 0)[0]])))
         else:
             # standard key is sequence id + edge type
@@ -215,11 +217,11 @@ class CachedDcModel(DcModelRewriteMixin, CacheDelegate):
 
         for k in keys:
             token, score = None, None
-            
+
             async with self.cache_lock:
                 if k in self.cache:
                     token, score = self.cache[k]
-            
+
             if token is None:
                 continue
 
@@ -227,9 +229,8 @@ class CachedDcModel(DcModelRewriteMixin, CacheDelegate):
                 awaited_result = await token
                 if awaited_result is None:
                     continue
-                else:
-                    assert type(awaited_result) is tuple and len(awaited_result) == 2
-                    token, score = awaited_result
+                assert type(awaited_result) is tuple and len(awaited_result) == 2
+                token, score = awaited_result
             if user_data:
                 return keys, (token, score, self.user_data_cache.get(k, None))
             return keys, (token, score)

@@ -54,7 +54,9 @@ def _get_secret_from_file() -> Tuple[str, str]:
 
     if not any(os.path.exists(p) for p in search_paths if p is not None):
         m = _MISSING_CREDS_ERROR_MSG_TEMPLATE.format(
-            search_paths="\n".join(" - " + p for p in search_paths if p is not None)
+            search_paths="\n".join(
+                f" - {p}" for p in search_paths if p is not None
+            )
         )
         raise FileNotFoundError(m)
 
@@ -74,7 +76,9 @@ def _get_secret_from_file() -> Tuple[str, str]:
             elif line.startswith("openai-org: "):
                 openai_org = line.split("openai-org: ")[1].strip()
 
-    assert openai_secret is not None, "No 'openai-secret: ' entry found in api.env file:\n\n{}".format("".join(lines))
+    assert (
+        openai_secret is not None
+    ), f"""No 'openai-secret: ' entry found in api.env file:\n\n{"".join(lines)}"""
 
     return openai_secret, openai_org
 

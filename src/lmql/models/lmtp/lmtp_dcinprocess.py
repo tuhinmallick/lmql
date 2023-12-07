@@ -33,7 +33,9 @@ def inprocess(model_name, use_existing_configuration=False, **kwargs):
     if model_name.startswith("llama.cpp:"):
         # kwargs["async_transport"] = True
         if "tokenizer" not in kwargs:
-            warnings.warn("By default LMQL uses the '{}' tokenizer for all llama.cpp models. To change this, set the 'tokenizer' argument of your lmql.model(...) object.".format("huggyllama/llama-7b", UserWarning))
+            warnings.warn(
+                "By default LMQL uses the 'huggyllama/llama-7b' tokenizer for all llama.cpp models. To change this, set the 'tokenizer' argument of your lmql.model(...) object."
+            )
         kwargs["tokenizer"] = kwargs.get("tokenizer", "huggyllama/llama-7b")
 
     if "endpoint" in kwargs:
@@ -41,11 +43,7 @@ def inprocess(model_name, use_existing_configuration=False, **kwargs):
 
     cmdline_args = f"{model_name} "
     for k,v in kwargs.items():
-        if type(v) is bool:
-            cmdline_args += f"--{k} "
-        else:
-            cmdline_args += f"--{k} {v} "
-
+        cmdline_args += f"--{k} " if type(v) is bool else f"--{k} {v} "
     global lmtp_model_inprocess_instances
 
     if cmdline_args in lmtp_model_inprocess_instances.keys():

@@ -9,7 +9,9 @@ def mask_num_allowed(m):
     Given a logits mask, sets tensor cell value to True iff the corresponding token is allowed according to the mask.
     """
     if type(m) is list:
-        assert all([type(x) is int or type(x) is np.int64 for x in m]), "Sparse mask must be a list of int or np.int64"
+        assert all(
+            type(x) is int or type(x) is np.int64 for x in m
+        ), "Sparse mask must be a list of int or np.int64"
         return len(m)
     elif type(m) is int or np.isscalar(m):
         return 1
@@ -17,7 +19,9 @@ def mask_num_allowed(m):
 
 def mask_is_allowed(m, i):
     if type(m) is list:
-        assert all([type(x) is int or type(x) is np.int64 for x in m]), "Sparse mask must be a list of int or np.int64"
+        assert all(
+            type(x) is int or type(x) is np.int64 for x in m
+        ), "Sparse mask must be a list of int or np.int64"
         return i in m
     elif type(m) is int or np.isscalar(m):
         return i == int(m)
@@ -25,7 +29,9 @@ def mask_is_allowed(m, i):
 
 def mask_get_only_allowed(m):
     if type(m) is list:
-        assert all([type(x) is int or type(x) is np.int64 for x in m]), "Sparse mask must be a list of int or np.int64"
+        assert all(
+            type(x) is int or type(x) is np.int64 for x in m
+        ), "Sparse mask must be a list of int or np.int64"
         assert len(m) == 1, "only_allowed() only works with masks that allow exactly one token (num_allowed(mask) == 1)"
         return m[0]
     elif type(m) is int or np.isscalar(m):
@@ -33,7 +39,11 @@ def mask_get_only_allowed(m):
     return np.isclose(m, 0, atol=1e-8).argmax()
 
 def is_dense_mask(mask):
-    return type(mask) is np.ndarray and all([type(x) is np.float32 or type(x) is np.float64 for x in mask]), "Mask must be a numpy array of floats"
+    return (
+        type(mask) is np.ndarray
+        and all(type(x) is np.float32 or type(x) is np.float64 for x in mask),
+        "Mask must be a numpy array of floats",
+    )
 
 def is_fixed_int_mask(mask):
     return type(mask) is list and len(mask) > 0 and (
@@ -48,8 +58,7 @@ def to_dense(mask, vocab_size):
 def mask_key(mask):
     if mask_num_allowed(mask) == 1:
         return str(mask_get_only_allowed(mask))
+    if is_fixed_int_mask(mask):
+        return "-".join([str(i) for i in mask])
     else:
-        if is_fixed_int_mask(mask):
-            return "-".join([str(i) for i in mask])
-        else:
-            return "-".join([str(i) for i in np.where(mask >= 0)[0]])
+        return "-".join([str(i) for i in np.where(mask >= 0)[0]])

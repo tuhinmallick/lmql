@@ -35,16 +35,15 @@ class GenerateCall:
         }))
 
     def generation_mode(self):
-        is_score = self.kwargs.get("score", False)
-        if is_score: return "score"
-        
+        if is_score := self.kwargs.get("score", False):
+            return "score"
         key_args = self.kwargs.copy()
         key_args.pop("max_tokens", None)
         key_args.pop("top_logprobs", None)
         key_args.setdefault("temperature", 0.0)
-        
+
         # string that describes the generation mode for this call (same string = can run in batch)
-        return "generate-" + "-".join("{}-{}".format(k, v) for k, v in sorted(key_args.items()))
+        return "generate-" + "-".join(f"{k}-{v}" for k, v in sorted(key_args.items()))
 
 @dataclass
 class GenerateBatch:
@@ -65,20 +64,20 @@ class GenerateBatch:
     def from_calls(cls, calls):
         input_ids = [c.prompt for c in calls]
         max_len = max(len(ids) for ids in input_ids)
-        
+
         attention_mask = [[0] * (max_len - len(ids)) + [1] * len(ids) for ids in input_ids]
         input_ids = [[0] * (max_len - len(ids)) + ids for ids in input_ids]
-        
+
         temperature = calls[0].kwargs.get("temperature", 0.0)
         max_tokens = max(c.kwargs.get("max_tokens", 32) for c in calls)
         logit_biases = [c.logit_bias or {} for c in calls]
-        
+
         is_score = any(c.kwargs.get("score", False) for c in calls)
         assert not is_score or all(c.kwargs.get("score", False) for c in calls), "cannot mix score and non-score calls in batch"
-        
+
         if is_score:
             scoring_offsets = []
-            for i, c in enumerate(calls):
+            for c in calls:
                 padding = max_len - len(c.prompt)
                 scoring_offsets.append(c.kwargs.get("scoring_offset", 0) + padding)
         else:
@@ -132,11 +131,13 @@ class TokenStreamer:
 
     def log_token(self, input_ids, scores, last=False, **kwargs):
         batch_size = input_ids.shape[0]
-        
+
         last_tokens = input_ids[:, -1]
         last_scores = scores[-1]
 
-        max_num_top_logprobs = max([c.kwargs.get("top_logprobs", 1) for c in self.batch.calls])
+        max_num_top_logprobs = max(
+            c.kwargs.get("top_logprobs", 1) for c in self.batch.calls
+        )
 
         if not nputil.is_array(last_tokens):
             last_tokens = last_tokens.cpu().numpy()
@@ -167,7 +168,7 @@ class TokenStreamer:
                 "finish_reason": ("stop" if last_tokens[i].item() == self.eos_token_id else "length" if last else None),
                 "top_logprobs": top_logprobs
             }
-            
+
             self.batch.calls[i].put(token_payload)
 
 class Scheduler:
@@ -179,20 +180,15 @@ class Scheduler:
     """
     def __init__(self, model_identifier, model_args = None, sync=False):
         self.model_identifier = model_identifier
-        if model_args is None: self.model_args = {}
-        else: self.model_args = model_args
-        
+        self.model_args = {} if model_args is None else model_args
         self.queue = Queue()
         self.kill_event = threading.Event()
-        
+
         self.sync = sync
 
         if not self.sync:
             self.worker_thread = threading.Thread(target=self.worker, daemon=True, name="scheduler-worker")
             self.worker_thread.start()
-        else:
-            pass
-
         self.users = set()
         self.last_use = time.time()
 
@@ -221,13 +217,15 @@ class Scheduler:
         for c in calls:
             mode = c.generation_mode()
             batches_by_mode.setdefault(mode, []).append(c)
-        
+
         # split batches that are too large
         fitting_batches = []
-        for mode, batches in batches_by_mode.items():
+        for batches in batches_by_mode.values():
             if len(batches) > max_batch_size:
-                for i in range(0, len(batches), max_batch_size):
-                    fitting_batches.append(batches[i:i+max_batch_size])
+                fitting_batches.extend(
+                    batches[i : i + max_batch_size]
+                    for i in range(0, len(batches), max_batch_size)
+                )
             else:
                 fitting_batches.append(batches)
 
@@ -278,18 +276,18 @@ class Scheduler:
         for batch in self.batches(model.max_batch_size):
             try:
                 b = GenerateBatch.from_calls(batch)
-                
+
                 if b.is_score:
                     kwargs = b.generate_args()
                     input_ids = kwargs["input_ids"]
                     attention_mask = kwargs["attention_mask"]
-                    
+
                     scores = model.score(input_ids, attention_mask)
                     ScoreStreamer().log_token(b, scores)
                 else:
                     streamer = TokenStreamer(b, model.eos_token_id)
                     kwargs = b.generate_args()
-                    
+
                     kwargs["input_ids"] = np.array(kwargs["input_ids"], dtype=np.int64)
                     kwargs["attention_mask"] = np.array(kwargs["attention_mask"], dtype=np.int32)
 
@@ -298,7 +296,7 @@ class Scheduler:
             except Exception as e:
                 print("[Error during generate()]", e, flush=True)
                 for c in batch:
-                    c.error("failed to generate tokens '" + str(e) + "'")
+                    c.error(f"failed to generate tokens '{str(e)}'")
 
     @staticmethod
     def instance(model_identifier, model_args, user, only_existing=False, sync=False):
@@ -306,17 +304,19 @@ class Scheduler:
 
         if identifier not in Scheduler._instances:
             if only_existing:
-                raise LMTPCannotLoadModelByPolicy("Model '" + model_identifier + "' is not loaded and server is not configured to load it on demand.")
+                raise LMTPCannotLoadModelByPolicy(
+                    f"Model '{model_identifier}' is not loaded and server is not configured to load it on demand."
+                )
             Scheduler._instances[identifier] = Scheduler(model_identifier, model_args, sync=sync)
 
         s = Scheduler._instances[identifier]
         s.last_use = time.time()
-        
+
         if user is not None:
             s.users.add(user)
 
         Scheduler.gc() # unload any unused models
-    
+
         return s
     
     def unregister(self, user):
@@ -342,9 +342,9 @@ class Scheduler:
         """
 
         total = len(Scheduler._instances)
-        not_needed = [k for k, v in Scheduler._instances.items() if len(v.users) == 0]
-
         if total >= n:
+            not_needed = [k for k, v in Scheduler._instances.items() if len(v.users) == 0]
+
             for k in not_needed:
                 s = Scheduler._instances[k]
                 Scheduler._instances[k].dealloc()
@@ -384,7 +384,7 @@ class TokenSession:
                 scored = kwargs.pop("scored")
                 stream_id = kwargs.pop("stream_id")
                 self.used_models.add(model)
-                
+
                 kwargs["score"] = True
                 # full sequence to score
                 full_ids = prompt + scored 
@@ -400,7 +400,7 @@ class TokenSession:
                     "model_info": scheduler.model_info()
                 }))
             else:
-                raise Exception("Unknown command: {}".format(cmd))
+                raise Exception(f"Unknown command: {cmd}")
         except LMTPCannotLoadModelByPolicy as e:
             print("Client requested model that is not loaded and server is not configured to load it on demand.", flush=True)
             self.output_stream.put(("MSG", {

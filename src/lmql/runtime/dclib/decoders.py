@@ -125,19 +125,19 @@ async def beam_sample(prompt_ids: np.ndarray, n=4, max_len=None, temperature=Non
         h = dc.repeat(h, n*len(h))
         h = h.extend(await model.sample(h, num_samples=1, temperature=temperature))
         h = dc.token_unique(h)
-        
+
         h = await model.rewrite(h)
         h, done = (h + done).separate_by(not_done)
 
-        h = dc.topk(h, n, name = "h_" + str(num_steps))
-        done = dc.topk(done, n, name = "done_" + str(num_steps))
+        h = dc.topk(h, n, name=f"h_{str(num_steps)}")
+        done = dc.topk(done, n, name=f"done_{str(num_steps)}")
 
         # stop when done already tracks topk results
         if len(done) == n and (len(h) == 0 or dc.max_score(h) < dc.min_score(done)):
             break
 
         yield (h, done)
-    
+
     yield (h, done)
 
     dc.finish(done)
@@ -163,15 +163,15 @@ async def beam_search(prompt_ids: np.ndarray, n=4, max_len=None, **kwargs):
         h = await model.rewrite(h)
         h, done = (h + done).separate_by(not_done)
 
-        h = dc.topk(h, n, name = "h_" + str(num_steps))
-        done = dc.topk(done, n, name = "done_" + str(num_steps))
+        h = dc.topk(h, n, name=f"h_{str(num_steps)}")
+        done = dc.topk(done, n, name=f"done_{str(num_steps)}")
 
         # stop when done already tracks topk results
         if len(h) == 0 or (len(done) == n and dc.max_score(h) < dc.min_score(done)):
             break
 
         yield (h, done)
-    
+
     dc.finish(dc.array_sorted(done.flatten(), key=lambda s: -s.logprobs.sum()))
 
     yield (h, done)
@@ -255,13 +255,13 @@ async def beam_var(prompt_ids: np.ndarray, n=4, max_len=None, inject_stop=False,
             h = det_h + nondet_h
             # h = post_vilar_allocation(h, n, scorer=scorer, num_steps=num_steps)
 
-            done = dc.topk(done, n, scorer=scorer, name="done_" + str(num_steps))
+            done = dc.topk(done, n, scorer=scorer, name=f"done_{str(num_steps)}")
 
         if len(done) > 0 and return_first:
             break
 
         yield (h, done)
-    
+
     done.name("final result")
     yield done
 
@@ -313,7 +313,10 @@ def post_vilar_allocation(h, k, scorer=None, num_steps=0):
     h_filtered = DataArray({})
     for num_const, seqs in pools_by_const_num.items():
         seqs_filtered = dc.topk(seqs, bank_sizes[num_const], scorer=scorer).name(f"bank_{num_steps}_{num_const}")
-        assert all([s.num_constraints == num_const for s in seqs_filtered.unstructured()])
+        assert all(
+            s.num_constraints == num_const
+            for s in seqs_filtered.unstructured()
+        )
         h_filtered += seqs_filtered
 
     h = h_filtered.reshape(*original_shape)
@@ -345,7 +348,7 @@ def get_bank_sizes_post_vilar(num_seq_with_constraints: Dict[int, int],
     for n_const in bank_size_keys:
         bank_sizes[n_const] += roll_over
         roll_over = 0
-        overfill = bank_sizes[n_const] - (num_seq_with_constraints[n_const] if n_const in num_seq_with_constraints else 0)
+        overfill = bank_sizes[n_const] - num_seq_with_constraints.get(n_const, 0)
         if overfill > 0:
             bank_sizes[n_const] -= overfill
             roll_over += overfill
@@ -355,7 +358,7 @@ def get_bank_sizes_post_vilar(num_seq_with_constraints: Dict[int, int],
     for n_const in reversed(bank_size_keys):
         bank_sizes[n_const] += roll_over
         roll_over = 0
-        overfill = bank_sizes[n_const] - (num_seq_with_constraints[n_const] if n_const in num_seq_with_constraints else 0)
+        overfill = bank_sizes[n_const] - num_seq_with_constraints.get(n_const, 0)
         if overfill > 0:
             bank_sizes[n_const] -= overfill
             roll_over += overfill
@@ -425,8 +428,8 @@ async def topk_var_continuations(model, seqs: dc.DataArray, active_variable, b, 
     def is_active_variable(s):
         v = s.data("head.variable")
         ctr = s.data("head.recurring_variable_counter")
-        v = v + "_" + str(ctr.get(v, 0))
-        
+        v = f"{v}_{str(ctr.get(v, 0))}"
+
         if v is None: return False
         if active_variable.get() is None: 
             active_variable.set(v)
@@ -442,15 +445,15 @@ async def topk_var_continuations(model, seqs: dc.DataArray, active_variable, b, 
             # inner variable decoding (beam_sample with 2*n beams and branching factor n)
             kwargs.pop("temperature", None)
             active = active.extend(await model.topk_continuations(active, k=b, **kwargs))
-            
+
             active = await model.rewrite(active)
 
             active, variable_done = (active + variable_done).separate_by(is_active_variable)
             active = dc.topk(active, b)
 
-            active.name(str(active_variable.get()) + "[" + str(i) + "]_")
+            active.name(f"{str(active_variable.get())}[{str(i)}]_")
             i += 1
-            
+
             yield active
     elif method == "beam_seq":
         i = 0
@@ -459,7 +462,11 @@ async def topk_var_continuations(model, seqs: dc.DataArray, active_variable, b, 
         nw_score = non_rewritten_score()
         top_variable_done = dc.seqs()
 
-        while not (len(active) == 0 or (len(top_variable_done) == b and dc.max_score(active, scorer=nw_score) < dc.min_score(top_variable_done, scorer=nw_score))):
+        while len(active) != 0 and (
+            len(top_variable_done) != b
+            or dc.max_score(active, scorer=nw_score)
+            >= dc.min_score(top_variable_done, scorer=nw_score)
+        ):
             # inner variable decoding (beam_sample with 2*n beams and branching factor n)
             if method == "sample":
                 active = dc.repeat(active, b*len(active))
@@ -467,7 +474,7 @@ async def topk_var_continuations(model, seqs: dc.DataArray, active_variable, b, 
             else:
                 kwargs.pop("temperature", None)
                 active = active.extend(await model.topk_continuations(active, k=b, **kwargs))
-            
+
             for s in active.flatten().items():
                 # s.data("eos_score", s.score
                 s.data("eos_score", regular_scorer(s.logprobs))
@@ -485,9 +492,9 @@ async def topk_var_continuations(model, seqs: dc.DataArray, active_variable, b, 
 
             top_variable_done, _ = dc.seperate_topk(variable_done, b, scorer=regular_scorer)
 
-            active.name(str(active_variable.get()) + "[" + str(i) + "]_")
+            active.name(f"{str(active_variable.get())}[{str(i)}]_")
             i += 1
-            
+
             yield active
     elif method == "sample":
         active = dc.repeat(active, b*len(active))
@@ -495,13 +502,13 @@ async def topk_var_continuations(model, seqs: dc.DataArray, active_variable, b, 
 
         while not is_seq_beams_search_done(active, variable_done, num_beams=b):
             active = active.extend(await model.sample(active, temperature=temperature, num_samples=1))
-            
+
             active = await model.rewrite(active)
-            
+
             active, variable_done = (active + variable_done).separate_by(is_active_variable)
             active = dc.topk(active, b)
 
-            active.name(str(active_variable.get()) + "[" + str(i) + "]_")
+            active.name(f"{str(active_variable.get())}[{str(i)}]_")
             i += 1
 
             yield active
@@ -524,7 +531,7 @@ async def var(prompt_ids: np.ndarray, b=2, n=None, max_len=384, subdecoder="samp
         sampling temperature to use to obtain multiple variable values
     """
     model = dc.model(**kwargs)
-    kwargs.update({"temperature": temperature})
+    kwargs["temperature"] = temperature
 
     # keep track of active beams and finished sequences
     variable_done = dc.seqs([dc.seq(prompt_ids)])
@@ -540,11 +547,11 @@ async def var(prompt_ids: np.ndarray, b=2, n=None, max_len=384, subdecoder="samp
         # remove sequences that violate constraints
         # variable_done, _ = variable_done.separate_by(dc.is_lmql_valid)
         # if len(variable_done) == 0: break
-        
+
         # generate variable continuation
         async for variable_done in topk_var_continuations(model, variable_done, active_variable, b, subdecoder, **kwargs):
             yield variable_done
-        
+
         # restrict to top b best variable continuations
         variable_done = variable_done.flatten()
         variable_done, done = (done + variable_done).separate_by(is_not_done)
@@ -558,26 +565,26 @@ async def var(prompt_ids: np.ndarray, b=2, n=None, max_len=384, subdecoder="samp
             det = det.extend(await model.argmax(det))
             det = await model.rewrite(det)
             det, non_det = (det + non_det).separate_by(dc.next_is_deterministic)
-            
+
             yield (det, non_det)
 
         # if after deterministic expansion all sequences are done, we are done
         variable_done, done = (det + non_det + done).separate_by(is_not_done)
-        
+
         if len(variable_done) == 0: break
 
         variable_done = dc.topk(variable_done, n)
-        variable_done.name("candidates_" + active_variable.get())
+        variable_done.name(f"candidates_{active_variable.get()}")
 
         yield variable_done
 
         if len(done) > 0 and return_first: break
-        # variable_done = non_det
+            # variable_done = non_det
 
     done = dc.topk(done, len(done))
     done.name("final result")
     yield done
-    
+
     dc.finish(dc.array_sorted(done.flatten(), key=lambda s: -s.logprobs.sum()))
 
 def is_seq_beams_search_done(active_hypotheses, done_hypotheses, num_beams, scorer=None):

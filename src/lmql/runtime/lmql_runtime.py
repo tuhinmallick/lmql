@@ -33,17 +33,21 @@ class LMQLInputVariableScope:
             if errors == "ignore":
                 return None
             else:
-                raise TypeError("Failed to resolve value of variable '" + name + "' in @lmql.query " + str(self.fct), name)
+                raise TypeError(
+                    f"Failed to resolve value of variable '{name}' in @lmql.query {str(self.fct)}",
+                    name,
+                )
 
 class EmptyVariableScope:
     def resolve(self, name, errors=None):
         if name in __builtins__.keys():
             return __builtins__[name]
+        if errors == "ignore":
+            return None
         else:
-            if errors == "ignore":
-                return None
-            else:
-                raise TypeError("Failed to resolve value of variable '" + name + "' in @lmql.query function.")
+            raise TypeError(
+                f"Failed to resolve value of variable '{name}' in @lmql.query function."
+            )
 
 @dataclass
 class FunctionContext:
@@ -112,7 +116,7 @@ class LMQLQueryFunction:
         # only bind if kwargs are empty and no signature is provided (lmql.F or lmql.run)
         if len(signature.parameters) != 0 or len(self.args) != len(args):
             return
-        kwargs = {**{k:v for k,v in zip(self.args, args)}, **query_kwargs}
+        kwargs = dict(zip(self.args, args)) | query_kwargs
 
         return inspect.BoundArguments(
             signature=inspect.Signature(parameters=[inspect.Parameter(name=k, kind=inspect.Parameter.POSITIONAL_OR_KEYWORD) for k in self.args]),
@@ -126,23 +130,26 @@ class LMQLQueryFunction:
         Resolves additional captured variables using the surrounding function context.
         """
         assert self.function_context is not None, "Cannot call @lmql.query function without context."
-        
+
         signature = self.function_context.argnames
         args_of_query = self.function_context.args_of_query
         if "__self__" in kwargs: kwargs["self"] = kwargs.pop("__self__")
-        
+
         scope = self.function_context.scope
 
-        runtime_args = {k:v for k,v in kwargs.items() if not k in signature.parameters.keys() and k not in args_of_query}
+        runtime_args = {
+            k: v
+            for k, v in kwargs.items()
+            if k not in signature.parameters.keys() and k not in args_of_query
+        }
         query_kwargs = {k:v for k,v in kwargs.items() if k in signature.parameters.keys()}
 
-        compiled_query_args = {}
-
-        # initialize with default values
-        for name, param in signature.parameters.items():
-            if param.default is not inspect.Parameter.empty and name in args_of_query:
-                compiled_query_args[name] = param.default
-
+        compiled_query_args = {
+            name: param.default
+            for name, param in signature.parameters.items()
+            if param.default is not inspect.Parameter.empty
+            and name in args_of_query
+        }
         # bind args and kwargs to signature
         try:
             signature: inspect.BoundArguments = signature.bind(*args, **query_kwargs)
@@ -155,12 +162,19 @@ class LMQLQueryFunction:
                 else:
                     raise e
             else:    
-                if len(e.args) == 1 and e.args[0].startswith("missing "):
-                    e.args = (f"Call to @lmql.query function is " + e.args[0] + "." + f" Expecting {signature}, but got positional arguments {args} and keyword arguments {kwargs}.",)
-                elif len(e.args) == 1:
-                    e.args = (e.args[0] + "." + f" Expecting {signature}, but got positional args {args} and {kwargs}.",)
+                if len(e.args) == 1:
+                    if e.args[0].startswith("missing "):
+                        e.args = (
+                            f"Call to @lmql.query function is {e.args[0]}."
+                            + f" Expecting {signature}, but got positional arguments {args} and keyword arguments {kwargs}.",
+                        )
+                    else:
+                        e.args = (
+                            f"{e.args[0]}."
+                            + f" Expecting {signature}, but got positional args {args} and {kwargs}.",
+                        )
                 raise e
-        
+
         # apply default arguments
         signature.apply_defaults()
 
@@ -185,7 +199,7 @@ class LMQLQueryFunction:
 
         # resolve remaining unset args from scope
         for v in captured_variables:
-            if not v in compiled_query_args:
+            if v not in compiled_query_args:
                 try:
                     compiled_query_args[v] = scope.resolve(v, errors="raise")
                 except TypeError:
@@ -193,7 +207,9 @@ class LMQLQueryFunction:
 
         # disable this check for now, as dynamic variable resolution cannot always be checked at compile time (e.g. import * from module)
         if len(failed_to_resolve) == 1:
-            raise TypeError("Failed to resolve variable '" + failed_to_resolve[0] + "' in LMQL query.")
+            raise TypeError(
+                f"Failed to resolve variable '{failed_to_resolve[0]}' in LMQL query."
+            )
         elif len(failed_to_resolve) > 0:
             raise TypeError("Failed to resolve variables in LMQL query: " + ", ".join(f"'{v}'" for v in sorted(failed_to_resolve)))
 
@@ -252,10 +268,10 @@ class LMQLQueryFunction:
         return chain(self, output_keys=output_keys)
 
 def context_call(fct_name, *args, **kwargs):
-    return ("call:" + fct_name, args, kwargs)
+    return f"call:{fct_name}", args, kwargs
 
 def interrupt_call(fct_name, *args, **kwargs):
-    return ("interrupt:" + fct_name, args, kwargs)
+    return f"interrupt:{fct_name}", args, kwargs
 
 def compiled_query(output_variables=None, group_by=None):
     if output_variables is None:
@@ -280,8 +296,7 @@ def compiled_query(output_variables=None, group_by=None):
 
 async def call(fct, *args, **kwargs):
     if type(fct) is LMQLQueryFunction or (hasattr(fct, "__lmql_query_function__") and fct.__lmql_query_function__.is_async):
-        result = await fct(*args, **kwargs)
-        return result
+        return await fct(*args, **kwargs)
     if inspect.iscoroutinefunction(fct):
         return await fct(*args, **kwargs)
     else:
@@ -299,4 +314,6 @@ def type_expr(var_name, target, lcls, glbs, *args, **kwargs):
     elif target is int:
         return IntOp([Var(var_name)])
     else:
-        raise TypeError("Not a valid type expression or tactic annotation '" + str(target) + "' for variable '" + var_name + "'.")
+        raise TypeError(
+            f"Not a valid type expression or tactic annotation '{str(target)}' for variable '{var_name}'."
+        )

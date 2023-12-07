@@ -23,12 +23,16 @@ class FollowMap(Iterable):
         def format_pattern(p):
             if type(p) is set and len(p) == 1:
                 return list(p)[0]
-            if type(p) is set:
-                return sorted(list(p))
-            return p
+            return sorted(list(p)) if type(p) is set else p
 
         def format_component(c):
-            if type(c) is tuple and len(c) == 2 and type(c[1]) is tuple and len(c[1]) == 1 and c[1][0] in set(["inc", "dec", "fin", "var"]):
+            if (
+                type(c) is tuple
+                and len(c) == 2
+                and type(c[1]) is tuple
+                and len(c[1]) == 1
+                and c[1][0] in {"inc", "dec", "fin", "var"}
+            ):
                 # if c[1][0] == "var":
                 #     return c[0]
                 return f"{c[1][0]}({c[0]})"
@@ -37,7 +41,9 @@ class FollowMap(Iterable):
         return " and ".join(f"{format_pattern(pattern)} -> {format_component(component)}" for pattern, component in self.components)
     
     def __eq__(self, other: object) -> bool:
-        assert type(other) is FollowMap, "Can only compare (==) FollowMap instances with other FollowMap instances, not {}".format(type(other))
+        assert (
+            type(other) is FollowMap
+        ), f"Can only compare (==) FollowMap instances with other FollowMap instances, not {type(other)}"
 
         return str(other) == str(self)
 
@@ -98,28 +104,26 @@ class FollowMap(Iterable):
         return ((p,c) for p,c in self.components)
 
     def hashable(self, value):
-        if type(value) is tuple:
+        if (
+            type(value) is tuple
+            or type(value) is not ArgTuple
+            and type(value) is list
+            or type(value) is not ArgTuple
+            and type(value) is set
+        ):
             return tuple(self.hashable(t) for t in value)
         elif type(value) is ArgTuple:
             return ArgTuple(self.hashable(t) for t in value)
-        elif type(value) is list:
-            return tuple(self.hashable(t) for t in value)
-        elif type(value) is set:
-            return tuple(self.hashable(t) for t in value)
         else:
             return value
 
     def simplify(self):
         by_value = {}
-        
+
         for p,c in self:
             # make component hashable (i.e. tuples => lists)
             c = self.hashable(c)
-            if c in by_value:
-                by_value[c] = union(by_value[c], p)
-            else:
-                by_value[c] = p
-        
+            by_value[c] = union(by_value[c], p) if c in by_value else p
         # # by_pattern = {}
         # # for c,p in by_value.items():
         # #     if p in by_pattern:
@@ -130,7 +134,7 @@ class FollowMap(Iterable):
         self.components = [(p,c) for c,p in by_value.items()]
 
     def product(self, *others):
-        if len(others) == 0: return self
+        if not others: return self
 
         result_map = fmap()
         handled = tset()
@@ -147,7 +151,7 @@ class FollowMap(Iterable):
             result_map.add(ArgTuple(v for p,v in mappings), p_intersected)
 
             handled = handled.union(p_intersected)
-        
+
         result_map.simplify()
 
         return result_map
@@ -158,17 +162,19 @@ class FollowMap(Iterable):
     
     def flat_map(self, fct, simplify=True):
         mappings = []
-        
+
         for pattern, value in self.components:
             submap = fct(pattern, value)
             if submap is None:
                 mappings.append((pattern, value))
             else:
                 submap = submap.intersect(pattern)
-                for subpattern, subvalue in submap.components:
-                    mappings.append((subpattern, subvalue))
+                mappings.extend(
+                    (subpattern, subvalue)
+                    for subpattern, subvalue in submap.components
+                )
         result = fmap(*mappings)
-        
+
         if simplify: result.simplify()
 
         return result
@@ -180,20 +186,20 @@ def zip_fmap(*fmaps):
     patterns must match for all fmaps).
     """
 
-    assert len(fmaps) > 0, "cannot zip_fmap with 0 follow maps."
-    
+    assert fmaps, "cannot zip_fmap with 0 follow maps."
+
     mappings = []
     for entries in zip(*fmaps):
         patterns = [e[0] for e in entries]
-        values = tuple([e[1] for e in entries])
-        
-        assert all([p == patterns[0] for p in patterns])
+        values = tuple(e[1] for e in entries)
+
+        assert all(p == patterns[0] for p in patterns)
 
         mappings.append((patterns[0], values))
     return fmap(*mappings)
 
 def fmap_product(*maps):
-    assert len(maps) != 0, "Cannot construct product of zero follow maps."
+    assert maps, "Cannot construct product of zero follow maps."
     return maps[0].product(*maps[1:])
 
 def final_aware_iterator(follow_map):

@@ -33,7 +33,8 @@ async def serve(request: aiohttp.web_request.Request, q: LMQLQueryFunction, *arg
                 await resp.send("DONE")
             except Exception as e:
                 if not resp.ended:
-                    await resp.send("ERROR " + str(e))
+                    await resp.send(f"ERROR {str(e)}")
+
         await runner()
 
 def endpoint(query, *args, output_writer_cls=EventStreamOutputWriter, **kwargs):

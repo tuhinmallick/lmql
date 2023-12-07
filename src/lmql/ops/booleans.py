@@ -10,9 +10,9 @@ class NotOp(Node):
 
 class OrOp(Node):
     def forward(self, *args, **kwargs):
-        if any([a == True for a in args]):
+        if True in args:
             return True
-        elif all([a == False for a in args]):
+        elif all(a == False for a in args):
             return False
         else:
             return None
@@ -24,25 +24,24 @@ class OrOp(Node):
 
     def final(self, args, operands=None, result=None, **kwargs):
         if result:
-            if any(a == "fin" and v == True for a,v in zip(args, operands)):
-                return "fin"
-            return "var"
-        else: # not result
-            if any(a == "var" for a in args):
-                return "var"
-            return "fin"
+            return (
+                "fin"
+                if any(a == "fin" and v == True for a, v in zip(args, operands))
+                else "var"
+            )
+        return "var" if any(a == "var" for a in args) else "fin"
 
 class AndOp(Node):
     def forward(self, *args, **kwargs):
         if type(args[0]) is tuple and len(args) == 1:
             args = args[0]
 
-        if any([a == False for a in args]):
+        if any(a == False for a in args):
             return False
-        elif any([a is None for a in args]):
+        elif any(a is None for a in args):
             return None
         else:
-            return all([a for a in args])
+            return all(list(args))
 
     def follow(self, *v, **kwargs):
         return fmap(
@@ -51,17 +50,15 @@ class AndOp(Node):
 
     def final(self, args, operands=None, result=None, **kwargs):
         if result:
-            if all([a == "fin" for a in args]):
+            if all(a == "fin" for a in args):
                 return "fin"
-            return "var"
-        else: # not result
-            if any([a == "fin" and v == False for a,v in zip(args, operands)]):
-                return "fin"
-            return "var"
+        elif any(a == "fin" and v == False for a, v in zip(args, operands)):
+            return "fin"
+        return "var"
         
     @staticmethod
     def all(*args):
-        if len(args) == 0:
+        if not args:
             return None
         elif len(args) == 1:
             return args[0]

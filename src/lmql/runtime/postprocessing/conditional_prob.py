@@ -50,7 +50,9 @@ class ConditionalDistributionPostprocessor:
             prompts = [result.prompt + value for value in distribution_values]
 
             if distribution_variable is None:
-                print("warning: result {} has no distribution variable set even though a DISTRIBUTION clause is given".format(i))
+                print(
+                    f"warning: result {i} has no distribution variable set even though a DISTRIBUTION clause is given"
+                )
                 continue
 
             scores = await self.score(result.prompt, distribution_values, model)
@@ -60,13 +62,13 @@ class ConditionalDistributionPostprocessor:
             scores = np.stack([s.mean() for s in scores], axis=0)
             log_probs = nputil.log_softmax(scores)
             probs = np.exp(log_probs)
-            
-            distribution = [(value, prob, prompt) for value, prob, prompt in zip(distribution_values, probs, prompts)]
-            log_distribution = [(value, log_prob, prompt) for value, log_prob, prompt in zip(distribution_values, log_probs, prompts)]
+
+            distribution = list(zip(distribution_values, probs, prompts))
+            log_distribution = list(zip(distribution_values, log_probs, prompts))
 
             result.variables[distribution_variable] = max(distribution, key=lambda x: x[1])[0]
             result.prompt = max(distribution, key=lambda x: x[1])[2] # get prompt including distribution value for argmax result
-            
+
             result.variables[f"P({distribution_variable})"] = [(value, prob) for value, prob, _ in distribution]
             result.variables[f"log P({distribution_variable})"] = [(value, prob) for value, prob, _ in log_distribution]
 

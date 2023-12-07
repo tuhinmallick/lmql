@@ -58,15 +58,13 @@ def certificate(tracer: Tracer, empty_on_null=False):
     certain result.
     """
     if type(tracer) is NullTracer:
-        if empty_on_null: 
-            return InferenceCertificate(NullTracer())
-        return None
+        return InferenceCertificate(NullTracer()) if empty_on_null else None
     return InferenceCertificate(tracer)
 
 def flatten_streamed_chat_responses(event):
     def flatten_chat(chat):
         # make sure all messages only contain 'content' and 'role' as keys
-        if not all([set(m.keys()).issubset(["content", "role"]) for m in chat]):
+        if not all(set(m.keys()).issubset(["content", "role"]) for m in chat):
             print(chat)
             return chat
         # flatten the chat
@@ -82,7 +80,7 @@ def flatten_streamed_chat_responses(event):
             "role": role,
             "content": text
         }]
-    
+
     name = event.get("name")
     if name == "openai.ChatCompletion":
         for k in event.get("data").keys():
@@ -94,17 +92,14 @@ def flatten_streamed_chat_responses(event):
 def flatten_streamed_openai_completion(event):
     def flatten(text):
         # if not all are strings, this is an unexpected format
-        if not all([type(t) is str for t in text]):
-            return text
-        # flatten the text
-        return "".join(text)
+        return text if any(type(t) is not str for t in text) else "".join(text)
 
     name = event.get("name")
     if name == "openai.Completion":
         for k in event.get("data").keys():
             if k.startswith("result["):
                 event["data"][k] = flatten(event["data"][k])
-    
+
     return event
 
 def fold_logit_bias(event):

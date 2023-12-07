@@ -64,15 +64,15 @@ class LiveDebuggerOutputWriter:
 @live()
 async def lmql(code, *args, web=False):
     import lmql
-    
+
     model = None
-    if len(args) > 0 and type(args[0]) is dict:
+    if args and type(args[0]) is dict:
         model = args[0].get("model")
         if model is not None and (model == "automatic" or len(model.strip()) == 0): 
             model = None
 
         if model is not None:
-            print("Running with fixed model: '{}'".format(model))
+            print(f"Running with fixed model: '{model}'")
 
     if code.startswith("./"):
         with open(code) as f:
@@ -88,20 +88,20 @@ async def lmql(code, *args, web=False):
 
         if type(r) is not lmql.LMQLResult:
             continue
-        
+
         for v in [v for v in r.variables if v.startswith("P(")]:
             distribution = r.variables[v]
-            max_prob = max([p for _,p in distribution])
+            max_prob = max(p for _,p in distribution)
             labels = []
             for value, prob in distribution:
                 label = value if prob != max_prob else f"{value} (*)"
                 labels.append(label)
-            max_length = max([len(str(l)) for l in labels])
+            max_length = max(len(str(l)) for l in labels)
 
             print(v)
             for (value, prob), label in zip(distribution, labels):
                 label = label.ljust(max_length)
-                print(" - {} {}".format(label, prob))
+                print(f" - {label} {prob}")
 
 def replace_inf_nan_with_str(d):
     import math

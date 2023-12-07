@@ -36,7 +36,7 @@ class LMTPWebSocketClient:
             "model": self.model_identifier,
             "data": payload
         }
-        await self.ws.send_str("{} {}".format(name, json.dumps(payload)))
+        await self.ws.send_str(f"{name} {json.dumps(payload)}")
 
         # wait for response
         fut = asyncio.Future()
@@ -44,7 +44,7 @@ class LMTPWebSocketClient:
         try:
             result = await asyncio.wait_for(fut, timeout=5)
         except TimeoutError as e:
-            raise TimeoutError("LMTP request '{}' timed out after 5 seconds".format(name))
+            raise TimeoutError(f"LMTP request '{name}' timed out after 5 seconds")
 
         self._model_info = result
         return result
@@ -60,7 +60,7 @@ class LMTPWebSocketClient:
 
         if payload.get("logit_bias", None) is None:
             payload.pop("logit_bias", None)
-        await self.ws.send_str("GENERATE {}".format(json.dumps(payload)))
+        await self.ws.send_str(f"GENERATE {json.dumps(payload)}")
 
         async for token in self.stream_iterator(self.stream_id):
             yield token
@@ -75,7 +75,7 @@ class LMTPWebSocketClient:
             "stream_id": self.stream_id
         }
 
-        await self.ws.send_str("SCORE {}".format(json.dumps(payload)))
+        await self.ws.send_str(f"SCORE {json.dumps(payload)}")
 
         async for token in self.stream_iterator(self.stream_id):
             yield token
@@ -120,7 +120,7 @@ class LMTPWebSocketClient:
                 for q in consumers: q.put_nowait(d)
         elif cmd == "MSG":
             data = json.loads(args)
-            
+
             for d in data:
                 stream_id = d["stream_id"]
 
@@ -128,7 +128,7 @@ class LMTPWebSocketClient:
                 if fut is not None:
                     fut.set_result(d)
         else:
-            warnings.warn("Unknown command: {}".format(cmd))
+            warnings.warn(f"Unknown command: {cmd}")
 
 def parse_kwargs(line):
     kwargs = {}
@@ -137,8 +137,8 @@ def parse_kwargs(line):
         if "=" in arg:
             k, v = arg.split("=", 1)
             kwargs[k] = eval(v)
-        elif len(kwargs) == 0:
-            prompt += arg + " "
+        elif not kwargs:
+            prompt += f"{arg} "
     return prompt, kwargs
 
 async def interactive_client():

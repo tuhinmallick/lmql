@@ -34,10 +34,10 @@ class TokenDistribution:
         elif len(b) == 1:
             return a, [b[0] for _ in range(len(a))]
         else:
-            raise ValueError("Cannot broadcast arrays of length {} and {}".format(len(a), len(b)))
+            raise ValueError(f"Cannot broadcast arrays of length {len(a)} and {len(b)}")
 
     def __repr__(self) -> str:
-        return "<TokenDistribution: {}>".format(self.probs)
+        return f"<TokenDistribution: {self.probs}>"
     
     def sample(self, num_samples=1):
         """

@@ -161,9 +161,8 @@ def min_score(ar, scorer: Optional[topk_scorer]=None):
 
 def array_sorted(ar, key, name=None):
     def op_sorted(seqs):
-        if len(seqs) == 0: 
-            return None
-        return list(sorted(seqs, key=key))
+        return None if len(seqs) == 0 else list(sorted(seqs, key=key))
+
     return ar.element_wise(op_sorted, name=name)
 
 def topk(ar, k, scorer: Optional[topk_scorer]=None, name=None):
@@ -221,21 +220,17 @@ def componentwise_kwargs(key, **kwargs):
     return {k: componentwise_arg(v, key) for k, v in kwargs.items()}
 
 def assert_shape_match(a, b, op, allow_mismatch_keys=False):
-    assert type(a) is dict, "internal error: can only perform shape checks on dicts of lists, but got a {}".format(type(a))
-    
+    assert (
+        type(a) is dict
+    ), f"internal error: can only perform shape checks on dicts of lists, but got a {type(a)}"
+
     if type(b) is not dict:
         raise ValueError(f"cannot apply {op} to a grid-shaped sequence pool and a non-grid-shaped sequence pool")
-    
+
     if allow_mismatch_keys:
         return True
 
-    missing_keys = []
-
-    for k in set(a.keys()):
-        if k not in b:
-            missing_keys.append(k)
-    
-    if len(missing_keys) > 0:
+    if missing_keys := [k for k in set(a.keys()) if k not in b]:
         raise ValueError(f"cannot apply {op} to two grid-shaped sequence pools with different sets of keys {a.keys()} vs. {b.keys()} (dimensions in a but not b: {missing_keys})")
 
     return True
@@ -252,8 +247,8 @@ def apply_componentwise(op, a, b, opname, allow_mismatch_keys=False, default_val
     result = {}
 
     for k in all_keys:
-        pool_a = pools_a[k] if k in pools_a else default_value
-        pool_b = pools_b[k] if k in pools_b else default_value
+        pool_a = pools_a.get(k, default_value)
+        pool_b = pools_b.get(k, default_value)
 
         result[k] = op(pool_a, pool_b)
 
@@ -294,16 +289,13 @@ class DataArray:
         """
         if name is None:
             return self
-        
+
         for path, result in self.sequences.items():
             if result is None:
                 continue
             for s in result:
                 if hasattr(s, "pool"):
-                    if path is NoDim or nopath:
-                        s.pool = name
-                    else:
-                        s.pool = name + "." + ".".join(path)
+                    s.pool = name if path is NoDim or nopath else f"{name}." + ".".join(path)
         return self
 
     def element_wise(self, op, name=None, *args, **kwargs):
@@ -359,19 +351,18 @@ class DataArray:
             else:
                 separated_seqs[key] = [s]
 
-        for key, seqs in separated_seqs.items():
-            if reshape:
-                separated_seqs[key] = DataArray(separated_seqs[key]).reshape(self.shape)
-            else:
-                separated_seqs[key] = DataArray(separated_seqs[key])
-
+        for key in separated_seqs:
+            separated_seqs[key] = (
+                DataArray(separated_seqs[key]).reshape(self.shape)
+                if reshape
+                else DataArray(separated_seqs[key])
+            )
         return separated_seqs
 
     def __add__(self, other):
         def op_add(s1, s2):
             if s1 is None: return s2
-            if s2 is None: return s1
-            return [s for s in (s1 + s2) if s is not None]
+            return s1 if s2 is None else [s for s in (s1 + s2) if s is not None]
 
         result = apply_componentwise(op_add, self.sequences, other.sequences, "+", allow_mismatch_keys=True)
         return DataArray(result)
@@ -389,16 +380,14 @@ class DataArray:
                     if item is None:
                         continue
                     yield item
-            else:
-                if leaf is None:
-                    continue
+            elif leaf is not None:
                 yield leaf
 
     def flatten(self):
         """
         Returns a flattened DataArray listing all elements of this array in the same dimension.
         """
-        return DataArray([s for s in self.unstructured()])
+        return DataArray(list(self.unstructured()))
 
     def item(self, i, path=None):
         """
@@ -413,8 +402,7 @@ class DataArray:
         if path is None:
             assert list(self.sequences.keys())[0] is NoDim, "Cannot access item without path if the array has more than one dimension."
             path = NoDim
-        for s in self.sequences[path]:
-            yield s
+        yield from self.sequences[path]
 
     def unique(self):
         """
@@ -428,10 +416,8 @@ class DataArray:
         """
         def op_filter(seqs):
             r = [s for s in seqs if op(s)]
-            if len(r) == 0:
-                return None
-            else:
-                return r
+            return None if not r else r
+
         return self.element_wise(op_filter)
 
     def reshape(self, *dims):
@@ -452,13 +438,13 @@ class DataArray:
         # unpack if necessary
         if len(dims) == 1 and (type(dims[0]) is list or type(dims[0]) is tuple):
             dims = dims[0]
-        
+
         dims_computer = [d if callable(d) else lambda s: s.data(d) for d in dims]
 
-        seqs = [s for s in self.unstructured()]
+        seqs = list(self.unstructured())
         dimensions = [tuple(d(s) for d in dims_computer) for s in seqs]
         data = {}
-        
+
         for s,d in zip(seqs, dimensions):
             if d in data: data[d].append(s)
             else: data[d] = [s]
@@ -469,14 +455,14 @@ class DataArray:
         """Async __str__ which additionally detokenizes sequences for better readability."""
         if sequences is None: 
             sequences = self.sequences
-        
+
         lines = []
         def str_k(k):
             if k is NoDim:  return "NoDim"
             elif k is None: return "None"
             else: return str(k)
 
-        max_len_key = max([len(str_k(k)) for k in sequences.keys()])
+        max_len_key = max(len(str_k(k)) for k in sequences.keys())
         for k in sorted(sequences.keys()):
             dimension_lines = [await s.text() for s in self.sequences[k]]
             for i,l in enumerate(dimension_lines):
@@ -490,14 +476,14 @@ class DataArray:
         """Async __str__ which additionally detokenizes sequences for better readability."""
         if sequences is None: 
             sequences = self.sequences
-        
+
         lines = []
         def str_k(k):
             if k is NoDim:  return "NoDim"
             elif k is None: return "None"
             else: return str(k)
 
-        max_len_key = max([len(str_k(k)) for k in sequences.keys()])
+        max_len_key = max(len(str_k(k)) for k in sequences.keys())
         for k in sorted(sequences.keys()):
             dimension_lines = [await s.str() for s in self.sequences[k]]
             for i,l in enumerate(dimension_lines):
@@ -526,8 +512,8 @@ class DataArray:
             return "<empty>"
 
         paths = [len("\t".join(str_k(k))) for k in data.keys()]
-        if len(paths) > 0:
-            max_len_path = max([len(str_k(k)) for k in data.keys()])
+        if paths:
+            max_len_path = max(len(str_k(k)) for k in data.keys())
             for k in sorted(data.keys(), key=lambda k: str_k(k)):
                 dimension_lines = self.__str__(data[k]).split("\n")
                 dimension_values = str_k(k)
@@ -553,9 +539,7 @@ def items_hierarchy(d, prefix=[]):
             items += items_hierarchy(v, [*prefix, k])
         else:
             items.append((".".join([*prefix, k]), v))
-    if len(prefix) == 0:
-        return sorted(items, key=lambda x: x[0])
-    return items
+    return sorted(items, key=lambda x: x[0]) if len(prefix) == 0 else items
 
 def seqs(seqs=None):
     return DataArray(seqs)

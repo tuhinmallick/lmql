@@ -10,7 +10,7 @@ def dict_min_token_hint(hints: List[TokenHint]) -> TokenHint:
     """
     Takes the element-wise minimum of the given token hints.
     """
-    if len(hints) == 0:
+    if not hints:
         return {}
     elif len(hints) == 1:
         return hints[0]
@@ -33,7 +33,4 @@ def most_restrictive_hint(hints: List[int]):
     Takes the element-wise minimum of the given token hints.
     """
     concrete = [h for h in hints if h != 0]
-    if len(concrete) == 0:
-        return 0
-    else:
-        return min(concrete)
+    return 0 if not concrete else min(concrete)

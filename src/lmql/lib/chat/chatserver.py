@@ -21,7 +21,7 @@ def assets(request):
     # relative to this ../assets/ folder
     if not path.startswith('chat_assets/'):
         return web.Response(text='not found', status=404)
-    path = path.replace('chat_assets/', PROJECT_DIR + '/assets/')
+    path = path.replace('chat_assets/', f'{PROJECT_DIR}/assets/')
     return web.FileResponse(path)
 
 class ChatServer:
@@ -53,11 +53,10 @@ class ChatServer:
         if callable(self.query):
             # first check if we already have a query function
             return self.query
-        else:
-            # read and parse query function from self.file
-            with open(self.query) as f:
-                source = f.read()
-                return lmql.query(source)
+        # read and parse query function from self.file
+        with open(self.query) as f:
+            source = f.read()
+            return lmql.query(source)
 
     async def handle_websocket_chat(self, request):
         ws = web.WebSocketResponse()
@@ -76,7 +75,7 @@ class ChatServer:
 
         chat_executor = websocket_executor(chatbot, ws)
         self.executors.append(chat_executor)
-        
+
         async for msg in ws:
             if msg.type == web.WSMsgType.TEXT:
                 if msg.data == 'close':
@@ -91,8 +90,7 @@ class ChatServer:
                         else:
                             print("warning: got input but query is not waiting for input", flush=True)
             elif msg.type == web.WSMsgType.ERROR:
-                print('ws connection closed with exception %s' %
-                    ws.exception())
+                print(f'ws connection closed with exception {ws.exception()}')
         chat_executor.chatbot_task.cancel()
 
         if chat_executor in self.executors:
@@ -102,7 +100,7 @@ class ChatServer:
 
     async def main(self):
         app = web.Application()
-        
+
         # host index.html
         app.add_routes([web.get('/', handle)])
 
@@ -112,17 +110,20 @@ class ChatServer:
 
         # host chat_assets/ folder
         app.add_routes([web.get('/{path:.*}', assets)])
-        
+
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, self.host, self.port)
         await site.start()
-        print('🤖 Your LMQL chatbot is waiting for you at http://{}:{}'.format(self.host, self.port), flush=True)
-        
+        print(
+            f'🤖 Your LMQL chatbot is waiting for you at http://{self.host}:{self.port}',
+            flush=True,
+        )
+
         # open browser if possible
         import webbrowser
-        webbrowser.open('http://{}:{}'.format(self.host, self.port))
-        
+        webbrowser.open(f'http://{self.host}:{self.port}')
+
         # idle to keep the server running
         while True:
             await asyncio.sleep(3600)
@@ -184,9 +185,7 @@ class websocket_executor(ChatMessageOutputWriter):
         await self.ws.send_str(chunk)
 
     async def input(self, *args):
-        if self.user_input_fut is not None:
-            return await self.user_input_fut
-        else:
+        if self.user_input_fut is None:
             self.user_input_fut = asyncio.get_event_loop().create_future()
             self.message_id += 1
-            return await self.user_input_fut
+        return await self.user_input_fut

@@ -11,13 +11,13 @@ class UniformRandomSamplingLLM(LMTPModel):
         self.kwargs = kwargs
 
         if kwargs.get("verbose", False):
-            print("['random' model using seed {}]".format(seed))
+            print(f"['random' model using seed {seed}]")
 
         if vocab is not None:
             from transformers import AutoTokenizer
             tokenizer = AutoTokenizer.from_pretrained(vocab)
             if kwargs.get("verbose", False):
-                print("['random' model using tokenizer {}]".format(tokenizer))
+                print(f"['random' model using tokenizer {tokenizer}]")
             self._eos_token_id = tokenizer.eos_token_id
             self._vocab_size = tokenizer.vocab_size
         else:
@@ -27,7 +27,7 @@ class UniformRandomSamplingLLM(LMTPModel):
                 print("['random' model using tokenizer gpt2]")
 
     def model_info(self):
-        return "UniformRandomSamplingLLM(seed={})".format(self.seed)
+        return f"UniformRandomSamplingLLM(seed={self.seed})"
 
     @property
     def eos_token_id(self):

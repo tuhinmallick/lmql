@@ -108,12 +108,10 @@ class InterpretationHead:
             fct = getattr(self.context, function_name)
             if len(self.future_trace) > 0:
                 res = self.future_trace.pop(0)
-                await self.advance(res)
-                return
             else:
                 res = await fct(*self.current_args[1], **self.current_args[2])
-                await self.advance(res)
-                return
+            await self.advance(res)
+            return
         elif type(self.current_args) is tuple and len(self.current_args) >= 2 and self.current_args[0].startswith("interrupt:"):
             function_name = self.current_args[0][10:]
             fct = getattr(self.context, function_name)

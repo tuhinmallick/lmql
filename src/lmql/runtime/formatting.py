@@ -12,24 +12,16 @@ def is_chat_list(l):
         return False
     if any(not isinstance(x, dict) for x in l):
         return False
-    
+
     # keys can be role and content
-    if any(x not in ["role", "content"] for x in l[0].keys()):
-        return False
-    
-    return True
+    return all(x in ["role", "content"] for x in l[0].keys())
 
 def format_chat(chat):
     """
     Formats a list of dicts representing an OpenAI Chat model
     input into an LMQL-compliant prompt string using <lmql:ROLE/> tags.
     """
-    qstring = ""
-    
-    for m in chat:
-        qstring += f"<lmql:{m['role']}/>{m['content']}"
-    
-    return qstring
+    return "".join(f"<lmql:{m['role']}/>{m['content']}" for m in chat)
 
 def tag(t):
     return f"<lmql:{t}/>"
@@ -40,8 +32,5 @@ def format(s):
     """
     if is_chat_list(s):
         return format_chat(s)
-    
-    if isinstance(s, Blob):
-        return tag("media id='" + s.id + "'")
 
-    return unescape(s)
+    return tag(f"media id='{s.id}'") if isinstance(s, Blob) else unescape(s)

@@ -19,8 +19,12 @@ class TemplateVariable:
         if "(" in self.name:
             import ast
             call = ast.parse(self.name).body[0].value
-            assert type(call) is ast.Call, "Failed to parse template variable name as function call: {}".format(self.name)
-            assert len(call.args) >= 1, "A function call has to have at least the template variable name as argument: {}".format(self.name)
+            assert (
+                type(call) is ast.Call
+            ), f"Failed to parse template variable name as function call: {self.name}"
+            assert (
+                len(call.args) >= 1
+            ), f"A function call has to have at least the template variable name as argument: {self.name}"
             self.name = ast.unparse(call.args[0]).strip()
             self.function_call = ast.unparse(call).strip()
 
@@ -101,51 +105,47 @@ class QstringParser:
 
     def skip(self, n, swallow=False):
         if not swallow:
-            if self.state == "string":
+            if self.state == "f-expr":
+                self.stmts[-1].expr += self.s[:n]
+            elif self.state == "string":
                 self.stmts[-1] += self.s[:n]
             elif self.state == "template variable":
                 self.stmts[-1].name += self.s[:n]
-            elif self.state == "f-expr":
-                self.stmts[-1].expr += self.s[:n]
             else:
-                assert False, "Invalid qstring parser state: {}".format(self.state)
+                assert False, f"Invalid qstring parser state: {self.state}"
         self.s = self.s[n:]
 
     def parse(self, s: str):
         self.state = "string" # | "template variable" | "f-expr"
         self.s = s
-        
+
         self.stmts = [""]
 
-        while len(self.s) > 0:
+        while self.s != "":
             c = self.s[0]
 
             if self.state == "string":
                 if c == "[":
                     if self.lookahead() == "[":
                         self.skip(2)
-                        continue
                     else:
                         self.state = "template variable"
                         if len(self.stmts[-1]) == 0:
                             self.stmts = self.stmts[:-1]
                         self.stmts.append(TemplateVariable(""))
                         self.skip(1, swallow=True)
-                        continue
                 elif c == "{" and self.mode == "all":
                     if self.lookahead() == "{":
                         self.skip(2)
-                        continue
                     else:
                         self.state = "f-expr"
                         if len(self.stmts[-1]) == 0:
                             self.stmts = self.stmts[:-1]
                         self.stmts.append(FExpression(""))
                         self.skip(1, swallow=True)
-                        continue
                 else:
                     self.skip(1)
-                    continue
+                continue
             elif self.state == "template variable":
                 self.parse_template_var()
                 self.state = "string"
@@ -156,13 +156,12 @@ class QstringParser:
                     self.state = "string"
                     self.stmts.append("")
                     self.skip(1, swallow=True)
-                    continue
                 else:
                     self.skip(1)
-                    continue
+                continue
         if type(self.stmts[-1]) is str and len(self.stmts[-1]) == 0:
             self.stmts = self.stmts[:-1]
-        
+
         # assign indices to template variables
         variable_counter = 0
 
@@ -170,7 +169,7 @@ class QstringParser:
             if type(s) is TemplateVariable:
                 s.index = variable_counter
                 variable_counter += 1
-            
+
                 if "distribution" in (s.decorator_exprs or []):
                     self.stmts[i] = DistributionVariable(s.name)
                     continue
@@ -179,52 +178,58 @@ class QstringParser:
                 self.stmts[i] = TagExpression(s.expr)
 
         # filter out empty name template variables
-        self.stmts = [s for s in self.stmts if not (type(s) is TemplateVariable and len(s.name) == 0)]
+        self.stmts = [
+            s
+            for s in self.stmts
+            if type(s) is not TemplateVariable or len(s.name) != 0
+        ]
 
         return self.stmts
     
     def parse_identifier_or_function_call(self, cursor):
-        assert cursor.token.type == tokenize.NAME, "Expected identifier, got {}".format(cursor.token)
+        assert (
+            cursor.token.type == tokenize.NAME
+        ), f"Expected identifier, got {cursor.token}"
         name = cursor.token.string
 
         # check for field access
         cursor.next()
         while cursor.token.type == tokenize.OP and cursor.token.string == ".":
             cursor.next()
-            assert cursor.token.type == tokenize.NAME, "Expected identifier, got {}".format(cursor.token)
-            name += "." + cursor.token.string
+            assert (
+                cursor.token.type == tokenize.NAME
+            ), f"Expected identifier, got {cursor.token}"
+            name += f".{cursor.token.string}"
             cursor.next()
 
 
         # check for function call
-        if not (cursor.token.type == tokenize.OP and cursor.token.string == "("):
+        if cursor.token.type != tokenize.OP or cursor.token.string != "(":
             return name
-        
+
         # parse function call
-        assert cursor.token.type == tokenize.OP and cursor.token.string == "(", "Expected '(', got {}".format(cursor.token)
+        assert (
+            cursor.token.type == tokenize.OP and cursor.token.string == "("
+        ), f"Expected '(', got {cursor.token}"
         num_parens_to_close = 1
 
         arg_tokens = [cursor.token]
         while True:
             cursor.next()
+            arg_tokens.append(cursor.token)
             if cursor.token.type == tokenize.OP and cursor.token.string == "(":
                 num_parens_to_close += 1
-                arg_tokens.append(cursor.token)
             elif cursor.token.type == tokenize.OP and cursor.token.string == ")":
                 num_parens_to_close -= 1
                 if num_parens_to_close == 0:
-                    arg_tokens.append(cursor.token)
                     cursor.next()
                     break
-                else:
-                    arg_tokens.append(cursor.token)
-            else:
-                arg_tokens.append(cursor.token)
-        
         return name + tokenize.untokenize(arg_tokens).strip()
 
     def parse_decorators(self, cursor):
-        assert cursor.token.type == tokenize.OP and cursor.token.string == "@", "Expected '@', got {}".format(cursor.token)
+        assert (
+            cursor.token.type == tokenize.OP and cursor.token.string == "@"
+        ), f"Expected '@', got {cursor.token}"
         cursor.next()
 
         decorators = [self.parse_identifier_or_function_call(cursor)]
@@ -238,7 +243,7 @@ class QstringParser:
         name = None
         decoder = None
         decorators = None
-        
+
         cursor = TokenCursor(self.s)
 
         # check for decorator
@@ -247,7 +252,7 @@ class QstringParser:
 
         # parse variable name
         name = self.parse_identifier_or_function_call(cursor)
-        
+
         # check for end of variable
         if cursor.token.type == tokenize.OP and cursor.token.string == "]":
             self.state = "string"
@@ -255,7 +260,7 @@ class QstringParser:
             self.skip(cursor.n_to_skip(), swallow=True)
             self.state = "string"
             return
-            
+
         # check for another identifier (e.g. name is actually decoder or decorator)
         elif cursor.token.type == tokenize.NAME:
             decoder = name
@@ -270,7 +275,9 @@ class QstringParser:
             return
 
         # otherwise, expect type annotation
-        assert cursor.token.type == tokenize.OP and cursor.token.string == ":", "Unexpected token in template variable: {}".format(cursor.token)
+        assert (
+            cursor.token.type == tokenize.OP and cursor.token.string == ":"
+        ), f"Unexpected token in template variable: {cursor.token}"
 
         # allow anything until we hit the final closing bracket
         squared_brackets_to_close = 0
@@ -281,16 +288,11 @@ class QstringParser:
 
             if cursor.token.type == tokenize.OP and cursor.token.string == "[":
                 squared_brackets_to_close += 1
-                type_tokens.append(cursor.token)
             elif cursor.token.type == tokenize.OP and cursor.token.string == "]":
                 if squared_brackets_to_close == 0:
                     break
-                else:
-                    squared_brackets_to_close -= 1
-                    type_tokens.append(cursor.token)
-            else:
-                type_tokens.append(cursor.token)
-        
+                squared_brackets_to_close -= 1
+            type_tokens.append(cursor.token)
         self.state = "string"
         self.stmts[-1] = TemplateVariable(name, tokenize.untokenize(type_tokens).strip(), decoder_expr=decoder, decorator_exprs=decorators)
         self.skip(cursor.n_to_skip(), swallow=True)

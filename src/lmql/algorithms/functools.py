@@ -3,12 +3,9 @@ import sys
 from .cache import apply
 
 async def map(q, items, chunksize=None, progress=False, parameter=None, **kwargs):
-    chunks = []
     if chunksize is None:
         chunksize = len(items)
-    for i in range(0, len(items), chunksize):
-        chunks.append(items[i:i+chunksize])
-    
+    chunks = [items[i:i+chunksize] for i in range(0, len(items), chunksize)]
     total_results = []
 
     if progress:

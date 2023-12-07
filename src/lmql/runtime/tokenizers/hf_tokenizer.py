@@ -104,10 +104,10 @@ class TransformersTokenizer:
 
     @property
     def name(self):
-        return "hf-" + self.model_identifier
+        return f"hf-{self.model_identifier}"
     
     def backend(self):
-        return "transformers " + type(self.tokenizer).__name__
+        return f"transformers {type(self.tokenizer).__name__}"
     
 class LlamaTransformersTokenizer(TransformersTokenizer):
     """Aligns the behavior of HF LlamaTokenizer with that of gpt tokenizers."""
@@ -129,13 +129,10 @@ class LlamaTransformersTokenizer(TransformersTokenizer):
         return super().tokenize(text, asbytes, add_special_tokens)
 
     def __call__(self, text, add_special_tokens=False):
-        prepend_dummy_tokens = ["@", "^", ""]
-        # make sure that llama-specific INST tokens are tokenized as-is
-        if text.startswith("[INST]"): prepend_dummy_tokens = [""]
-
+        prepend_dummy_tokens = [""] if text.startswith("[INST]") else ["@", "^", ""]
         for dummy_token in prepend_dummy_tokens:
             text_to_tokenize = dummy_token + text
-            
+
             text_to_tokenize = self.tokenizer.bos_token + text_to_tokenize
             result = super().__call__(text_to_tokenize, add_special_tokens=add_special_tokens)
             if len(result["input_ids"]) <= 2 and dummy_token != "":
@@ -145,4 +142,6 @@ class LlamaTransformersTokenizer(TransformersTokenizer):
             result["input_ids"] = result["input_ids"][offset:]
             return result
 
-        assert False, "LLamaTransformersTokenizer.__call__ failed to workaround tokenization issue for '{}'".format(text)
+        assert (
+            False
+        ), f"LLamaTransformersTokenizer.__call__ failed to workaround tokenization issue for '{text}'"

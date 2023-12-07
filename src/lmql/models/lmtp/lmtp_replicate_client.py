@@ -107,11 +107,11 @@ class LMTPReplicateClient:
             creation_result = await resp.json()
             stream_url = creation_result['urls']['stream'] # note there's also a cancel url provided
         async with aiohttp_sse_client.client.EventSource(stream_url,
-                session=self.session,
-                headers={
-                    'Accept': 'text/event-stream',
-                    'Authorization': f'Token {self.api_key}',
-                }) as event_source:
+                    session=self.session,
+                    headers={
+                        'Accept': 'text/event-stream',
+                        'Authorization': f'Token {self.api_key}',
+                    }) as event_source:
             async for event in event_source:
                 if event.type == 'done':
                     return
@@ -119,11 +119,11 @@ class LMTPReplicateClient:
                 for line in content:
                     if len(line) == 0:
                         continue
-                    if not ' ' in line:
+                    if ' ' not in line:
                         warnings.warn(f'Misformatted content received from Replicate task: {line!r}')
                         continue
                     cmd, item_json = line.split(' ', 1)
-                    if cmd != 'TOKEN' and cmd != 'MSG':
+                    if cmd not in ['TOKEN', 'MSG']:
                         warnings.warn(f"Unknown command {cmd!r} in line {line!r} -- protocol version mismatch? {cmd!r}")
                         continue
                     item = json.loads(item_json)

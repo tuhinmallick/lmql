@@ -46,14 +46,14 @@ async def serve(request: aiohttp.web_request.Request, q: lmql.LMQLQueryFunction,
                     await q(output_writer=WebSocketOutputWriter(ws))
                     await ws.send_str("DONE")
                 query_task = asyncio.create_task(runner())
-        
+
         elif msg.type == aiohttp.WSMsgType.ERROR:
-            print('lmql websocket connection closed with exception %s' % ws.exception())
+            print(f'lmql websocket connection closed with exception {ws.exception()}')
 
     if query_task is not None:
         query_task.cancel()
         await query_task
-    
+
     return ws
 
 def endpoint(query, *args, output_writer_cls=WebSocketOutputWriter, **kwargs):

@@ -46,7 +46,7 @@ def lmtp_serve_main(model_args):
     static = model_args.pop("static", False) or single_thread
     # in Docker, don't show the port (it's not accessible from outside the container anyway)
     docker_hide_port = model_args.pop("docker_hide_port", False)
-    
+
     assert not single_thread or model != "auto", "Cannot use --single_thread mode with model 'auto'. Please specify a specific model to load."
 
     # check 'auto' vs static
@@ -67,16 +67,16 @@ def lmtp_serve_main(model_args):
 
     app = web.Application()
     app.add_routes([web.get('/', stream)])
-    
+
     def web_print(*args):
         if len(args) == 1 and args[0].startswith("======== Running on"):
             if docker_hide_port:
-                print(f"[Serving LMTP endpoint on Docker container port]")
+                print("[Serving LMTP endpoint on Docker container port]")
             else:
                 print(f"[Serving LMTP endpoint on ws://{host}:{port}/]")
         else:
             print(*args)
-    
+
     # r executor
     tasks = [web._run_app(app, host=host, port=port, print=web_print)]
     if static and single_thread:
@@ -85,7 +85,7 @@ def lmtp_serve_main(model_args):
 
 def argparser(args):
     next_argument_name = None
-    
+
     kwargs = {}
     flag_args = ["cuda", "static", "single_thread", "docker_hide_port"]
 
@@ -129,7 +129,7 @@ options:
     """
 
     for arg in args:
-        if arg == "-h" or arg == "--help":
+        if arg in ["-h", "--help"]:
             print(help_text)
             sys.exit(0)
         if arg.startswith("--"):
@@ -138,33 +138,34 @@ options:
             if next_argument_name in flag_args:
                 kwargs[next_argument_name] = True
                 next_argument_name = None
+        elif next_argument_name is None:
+            assert "model" not in kwargs, "Positional argument 'model' already specified"
+            kwargs["model"] = arg
         else:
-            if next_argument_name is None:
-                assert not "model" in kwargs, "Positional argument 'model' already specified"
-                kwargs["model"] = arg
+            assert next_argument_name is not None
+            if arg == "True": arg = True
+            elif arg == "False": arg = False
             else:
-                assert next_argument_name is not None
-                if arg == "True": arg = True
-                elif arg == "False": arg = False
-                else:
+                try:
+                    arg = int(arg)
+                except:
                     try:
-                        arg = int(arg)
+                        arg = float(arg)
                     except:
-                        try:
-                            arg = float(arg)
-                        except:
-                            arg = str(arg)
+                        arg = str(arg)
 
 
-                kwargs[next_argument_name] = arg
-                next_argument_name = None
+            kwargs[next_argument_name] = arg
+            next_argument_name = None
 
-    if not "model" in kwargs:
+    if "model" not in kwargs:
         kwargs["model"] = "auto"
 
-    assert next_argument_name is None, "Missing value for argument {}".format(next_argument_name)
+    assert (
+        next_argument_name is None
+    ), f"Missing value for argument {next_argument_name}"
 
-    if len(kwargs) == 0:
+    if not kwargs:
         print(help_text)
         sys.exit(0)
 

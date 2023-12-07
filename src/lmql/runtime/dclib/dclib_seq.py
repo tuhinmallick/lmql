@@ -35,7 +35,7 @@ class DecoderGraph:
         return uid
     
     def set_pool(self, node, pool_name):
-        if not self.node_ids[node] in self.nodes:
+        if self.node_ids[node] not in self.nodes:
             self.add_node(node)
         self.nodes[self.node_ids[node]]["pool"] = pool_name
     
@@ -84,7 +84,7 @@ class DecoderGraph:
 class DecoderSequence:
     def __init__(self, input_ids_or_str, logprobs=None, deterministic=None, stop_phrase=None, predecessor=None, user_data=None, sticky_user_data_keys=None, epsilon_node=False, internal=False):
         if logprobs is not None:
-            if not all([p > get_truncation_threshold() for p in logprobs]):
+            if any(p <= get_truncation_threshold() for p in logprobs):
                 warnings.warn("logprobs contain values below the current logprob truncation threshold {t}, which may cause unexpected behavior. Consider increasing the truncation threshold via lmql.model(..., truncation_threshold=...).".format(t=get_truncation_threshold()))
 
         if type(input_ids_or_str) == str:
@@ -93,11 +93,11 @@ class DecoderSequence:
             input_ids = np.array(input_ids_or_str)
         else:
             input_ids = input_ids_or_str
-        
+
         assert nputil.is_array(input_ids), "input_ids must be a list or numpy array"
         self.input_ids = input_ids
         self.predecessor = predecessor
-        
+
         # if no logprobs are provided assume logprob of 0 (prob of 1)
         if logprobs is None:
             self.logprobs = np.array([0 for _ in range(len(input_ids))])
@@ -123,7 +123,9 @@ class DecoderSequence:
         # if no stop_phrase is provided assume no tokens to be stop_phrase
         if stop_phrase is None: self.stop_phrase = np.array([False for _ in range(len(input_ids))])
         else: self.stop_phrase = stop_phrase
-        assert len(self.stop_phrase) == len(self.input_ids), "Length of stop_phrase status does not match length of inputs for {} and {}".format(self.stop_phrase, self.input_ids)
+        assert len(self.stop_phrase) == len(
+            self.input_ids
+        ), f"Length of stop_phrase status does not match length of inputs for {self.stop_phrase} and {self.input_ids}"
 
         # cache for logits when model is called with this sequence
         self.logits = None
@@ -147,9 +149,7 @@ class DecoderSequence:
 
     @property
     def id(self):
-        if self._id is None: 
-            return "<root>"
-        return self._id
+        return "<root>" if self._id is None else self._id
 
     def __new__(cls, *args, **kwargs):
         s = super().__new__(cls)
@@ -175,9 +175,7 @@ class DecoderSequence:
             set_path(self.user_data, key, value)
             self.sticky_user_data_keys.add(key)
             return value
-        if key is None:
-            return self.user_data
-        return resolve_path(self.user_data, key)
+        return self.user_data if key is None else resolve_path(self.user_data, key)
 
     @property
     def is_query_constrained(self):
@@ -206,38 +204,42 @@ class DecoderSequence:
             t = str(get_tokenizer().decode(self.input_ids))
             t = str(t.encode("utf-8"))[2:-1]
             return t
+
         async def text_provider():
             t = str([get_tokenizer().decode(self.input_ids[-1:])])[2:-2]
             INVALID_CHARACTER = "\uFFFD"
             if INVALID_CHARACTER in t:
                 # use token id
                 if type(self.input_ids[-1]) is int:
-                    t = "token:" + str(self.input_ids[-1])
+                    t = f"token:{str(self.input_ids[-1])}"
                 elif type(self.input_ids[-1]) is bytes or type(self.input_ids[-1]) is np.bytes_:
                     # best effort solution to decode multibyte characters in the UI
                     for i in range(4):
-                        if not INVALID_CHARACTER in get_tokenizer().decode([self.input_ids[-i-1]]):
+                        if INVALID_CHARACTER not in get_tokenizer().decode(
+                            [self.input_ids[-i - 1]]
+                        ):
                             break
                         t = get_tokenizer().decode(self.input_ids[-i-1:])
                         if INVALID_CHARACTER not in t:
                             return t
                     t = ""
-                    # t = str(byte_value)[2:-1]
+                                # t = str(byte_value)[2:-1]
                 else:
                     t = str(self.input_ids[-1])
                     t = str(t.encode("utf-8"))[2:-1]
             return t
+
         providers = {
             "seqtext": seqtext_provider,
             "text": text_provider
         }
-        
+
         if not hasattr(self, "tokenizer_cache"):
             self.tokenizer_cache = {}
         if name not in self.tokenizer_cache:
             assert name in providers, f"Unknown tokenizer cache provider {name}"
             self.tokenizer_cache[name] = await providers[name]()
-        
+
         return self.tokenizer_cache[name]
 
     async def json_hash(self):
@@ -338,7 +340,9 @@ class DecoderSequence:
         return await UserJsonEncoder().default(self.user_data)
 
     def extend_user_data(self, continuation=None, user_data=None):
-        assert continuation is None or user_data is None, f"continuation and user_data are mutually exclusive arguments"
+        assert (
+            continuation is None or user_data is None
+        ), "continuation and user_data are mutually exclusive arguments"
         # prepares the user_data dictionary to use with sucessor sequences
         if continuation is None and user_data is None:
             user_data = {}
@@ -348,10 +352,8 @@ class DecoderSequence:
                 user_data = deepcopy(continuation.user_data[0])
             else:
                 user_data = deepcopy(continuation.user_data)
-        elif user_data is not None:
-            user_data = deepcopy(user_data)
         else:
-            user_data = deepcopy(continuation.user_data)
+            user_data = deepcopy(user_data)
         for sk in self.sticky_user_data_keys:
             if user_data is None:
                 user_data = {}
@@ -403,18 +405,15 @@ class DecoderSequence:
         offset = offset or 0
         limit = limit or len(self.input_ids)
         raw_text = get_tokenizer().decode(self.input_ids[offset:limit])
-        
-        if not pretty: 
-            return raw_text
-        else:
-            return str([raw_text])[2:-2]
+
+        return raw_text if not pretty else str([raw_text])[2:-2]
 
     async def str(self, full=False) -> str:
         ids = ", ".join([str(i) for i in self.input_ids[-10:]])
         if detokenize_seqs:
             s = get_tokenizer().decode(self.input_ids)
             if not full:
-                s = "..." + s[-40:]
+                s = f"...{s[-40:]}"
             return f"<seq token_len={len(self.input_ids)} s={str([s])[1:-1]} ids=[... {ids}]>"
         else:
             return f"<seq token_len={len(self.input_ids)} ids=[... {ids}]>"
@@ -424,22 +423,24 @@ class DecoderSequence:
         return f"<seq token_len={len(self.input_ids)} ids=[... {ids}]>"
 
     def is_done(self):
-        return self.input_ids[-1] == get_tokenizer().eos_token_id or \
-            self.input_ids[-1] == str(get_tokenizer().eos_token_id).encode() or \
-            self.input_ids[-1] == b"<|endoftext|>"
+        return self.input_ids[-1] in [
+            get_tokenizer().eos_token_id,
+            str(get_tokenizer().eos_token_id).encode(),
+            b"<|endoftext|>",
+        ]
 
     def make_successors(self, next_tokens, next_token_scores, logits, user_data=None):
         # remove very low scoring tokens (likely they were masked and therefore score low)
         next_tokens = nputil.ensure_iterable(next_tokens)
         next_token_scores = nputil.ensure_iterable(next_token_scores)
-        
+
         tokens = [t for t, s in zip(next_tokens, next_token_scores) if s > get_truncation_threshold()]
         scores = [s for s in next_token_scores if s > get_truncation_threshold()]
 
-        if len(tokens) == 0:
+        if not tokens:
             print("WARNING: all continuation token fall below the current logprob truncation threshold {t}. This is likely due to a too low truncation threshold. Please increase the truncation threshold via lmql.model(..., truncation_threshold=...).".format(t=get_truncation_threshold()))
             tokens = [t for t, s in zip(next_tokens, next_token_scores)][:1]
-            scores = [s for s in next_token_scores][:1]
+            scores = list(next_token_scores)[:1]
         next_tokens = np.stack(tokens, axis=0)
         next_token_scores = np.stack(scores, axis=0)
 
@@ -504,7 +505,10 @@ class DeterministicDecoderSequence(DecoderSequence):
         self.needs_rewrite = needs_rewrite
         self.internal = internal
 
-        if next_logprobs is not None: assert len(next_logprobs) == len(next_ids), "Length of deterministic continuation did not match length of provided logprobs. Provided logprobs: {}, Provided IDs: {}".format(len(next_logprobs), next_ids)
+        if next_logprobs is not None:
+            assert len(next_logprobs) == len(
+                next_ids
+            ), f"Length of deterministic continuation did not match length of provided logprobs. Provided logprobs: {len(next_logprobs)}, Provided IDs: {next_ids}"
         if next_deterministic is not None: assert len(next_deterministic) == len(next_ids), "Length of determinism status did not match length of provided logrprobs"
 
         self.align_user_data()
@@ -514,22 +518,22 @@ class DeterministicDecoderSequence(DecoderSequence):
 
     def align_user_data(self):
         if self.user_data is None: return
-        if not "head" in self.user_data: return
+        if "head" not in self.user_data: return
 
         # lmql-specific user data has to be different for deterministic sequences
-        
+
         # make sure to update all "head" an "head[...]" user data keys (head[...] belong to subinterpreters)
         head_user_data_keys = [k for k in self.user_data.keys() if k.startswith("head[") or k == "head"]
-        
+
         for head_key in head_user_data_keys:
             head_variable = resolve_path(self.user_data, f"{head_key}.variable")
-            
+
             if head_variable is not None:
                 # deterministic sequences don't have stopping phrases
                 set_path(self.user_data, head_key, self.user_data[head_key].updated(stopping_phrases={"tokenized": [], "text": []}))
             else:
                 set_path(self.user_data, head_key, self.user_data[head_key].updated(variable="<prompt>"))
-            
+
             if len(self.next_ids) > 0:
                 set_path(self.user_data, head_key, self.user_data[head_key].updated(mask="{token_id=" + str(self.next_ids[0]) + "}"))
             else:
@@ -538,7 +542,7 @@ class DeterministicDecoderSequence(DecoderSequence):
     @property
     def is_query_constrained(self):
         """Deterministic sequences are not query constrained, as long as they are fixed to their predetermined content."""
-        return True if len(self.next_ids) == 0 else False
+        return len(self.next_ids) == 0
 
     async def json(self):
         seqtext = await self.detokenized("seqtext")
@@ -589,11 +593,21 @@ class DeterministicDecoderSequence(DecoderSequence):
         if len(self.next_ids) <= 0:
             return super().extend(continuation)
 
-        assert continuation.token == self.next_ids[0], "deterministic sequences must be extended by the predetermined next token: provided: " + str(continuation.token) + ", predetermined: " + str(self.next_ids[0])
+        assert (
+            continuation.token == self.next_ids[0]
+        ), f"deterministic sequences must be extended by the predetermined next token: provided: {str(continuation.token)}, predetermined: {str(self.next_ids[0])}"
 
         extended_input_ids = np.concatenate([self.input_ids, continuation.token.reshape(1)])
         extended_logprobs = np.concatenate([self.logprobs, continuation.logprob.reshape(1)])
-        extended_deterministic = np.concatenate([self.deterministic, np.array([True]) if self.next_deterministic is None else self.next_deterministic[0:1]], dtype=np.bool_)
+        extended_deterministic = np.concatenate(
+            [
+                self.deterministic,
+                np.array([True])
+                if self.next_deterministic is None
+                else self.next_deterministic[:1],
+            ],
+            dtype=np.bool_,
+        )
 
         reduced_next_ids = self.next_ids[1:]
         reduced_next_logprobs = self.next_logprobs[1:] if self.next_logprobs is not None else None
@@ -623,23 +637,23 @@ class DeterministicDecoderSequence(DecoderSequence):
     def __repr__(self) -> str:
         ids = ", ".join([str(i) for i in self.input_ids[-10:]])
         if (len(self.next_ids) > 0): 
-            ids = "... " + ids
+            ids = f"... {ids}"
         next_ids = ", ".join([str(i) for i in self.next_ids[:10]])
         if len(self.next_ids) > 10: 
-            next_ids = "..." + next_ids
+            next_ids = f"...{next_ids}"
         return f"<detseq token_len={len(self.input_ids)} ids=[{ids}] next_ids=[{next_ids}]>"
 
     async def str(self, full=False) -> str:
         ids = ", ".join([str(i) for i in self.input_ids[-10:]])
         if (len(self.next_ids) > 0): 
-            ids = "... " + ids
+            ids = f"... {ids}"
         next_ids = ", ".join([str(i) for i in self.next_ids[:10]])
         if len(self.next_ids) > 10: 
-            next_ids = "..." + next_ids
+            next_ids = f"...{next_ids}"
         if detokenize_seqs:
             s = get_tokenizer().decode(self.input_ids)
             if not full:
-                s = "..." + s[-40:]
+                s = f"...{s[-40:]}"
             return f"<detseq token_len={len(self.input_ids)} s={str([s])[1:-1]} ids=[{ids}] next_ids=[{next_ids}]>"
         else:
             return f"<detseq token_len={len(self.input_ids)} ids=[{ids}] next_ids=[{next_ids}]>"
@@ -767,10 +781,7 @@ def token_unique(ar: DataArray, prefer=None, flatten=False):
 
     res = ar.element_wise(op_unique)
 
-    if flatten:
-        return res.reshape(original_shape)
-    else:
-        return res
+    return res.reshape(original_shape) if flatten else res
 
 
 def repeat(ar, n, scorer=None):

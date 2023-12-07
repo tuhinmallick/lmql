@@ -4,18 +4,13 @@ from lmql.models.lmtp.backends.lmtp_model import LMTPModel, LMTPModelResult, Tok
 import numpy as np
 
 def format_call(model_name, **kwargs):
-    if len(kwargs) == 0:
+    if not kwargs:
         return f'"{model_name}"'
     return f'"{model_name}", {", ".join([f"{k}={v}" for k, v in kwargs.items()])}'
 
 def merge(kwargs1, kwargs2, prioritize="left"):
     for k, v in kwargs2.items():
-        if k in kwargs1:
-            if prioritize == "left":
-                continue
-            else: # right
-                kwargs1[k] = v
-        else:
+        if k in kwargs1 and prioritize != "left" or k not in kwargs1: # right
             kwargs1[k] = v
     return kwargs1
 
@@ -25,7 +20,7 @@ version_info = {}
 class TransformersLLM(LMTPModel):
     def __init__(self, model_identifier, **kwargs):
         self.model_identifier = model_identifier
-        
+
         self.loader = kwargs.pop("loader", None)
         if self.loader is None:
             if '-gptq' in self.model_identifier.lower():
@@ -34,16 +29,22 @@ class TransformersLLM(LMTPModel):
                 self.loader = "awq"
             else:
                 self.loader = "transformers"
-                
+
         self.model_args = kwargs
         self.max_batch_size = kwargs.get("batch_size", 32)
 
         self.silent = kwargs.pop("silent", False)
 
         if not self.silent:
-            print("[Loading", self.model_identifier, "with", self.model_constructor() + "]", flush=True)
+            print(
+                "[Loading",
+                self.model_identifier,
+                "with",
+                f"{self.model_constructor()}]",
+                flush=True,
+            )
 
-        if self.loader == "gptq" or self.loader == "auto-gptq":
+        if self.loader in ["gptq", "auto-gptq"]:
             from auto_gptq import AutoGPTQForCausalLM
             self.model = AutoGPTQForCausalLM.from_quantized(self.model_identifier, **self.model_args)
         elif self.loader == 'awq':
@@ -62,12 +63,12 @@ class TransformersLLM(LMTPModel):
         else:
             from transformers import AutoModelForCausalLM            
             self.model = AutoModelForCausalLM.from_pretrained(self.model_identifier, **self.model_args)
-        
+
         if self.loader == 'awq':
             self.device = self.model.model.device
         else:
             self.device = self.model.device
-        
+
         if not self.silent:
             print("[", self.model_identifier, " ready on device ", self.device, 
         flush=True, sep="", end="]\n")
@@ -149,7 +150,7 @@ class TransformersLLM(LMTPModel):
         return [BatchLogitsProcessor()]
 
     def model_constructor(self):
-        if self.loader == "gptq" or self.loader == "auto-gptq":
+        if self.loader in ["gptq", "auto-gptq"]:
             return "AutoGPTQForCausalLM.from_quantized({})".format(format_call(self.model_identifier, **self.model_args))
         elif self.loader == 'awq':
             return "AutoAWQForCausalLM.from_quantized({})".format(format_call(self.model_identifier, **self.model_args))
@@ -158,9 +159,9 @@ class TransformersLLM(LMTPModel):
 
     def version_info(self):
         global version_info
-        
+
         if len(version_info) == 0:
-            if self.loader == "gptq" or self.loader == "auto-gptq":
+            if self.loader in ["gptq", "auto-gptq"]:
                 import auto_gptq
                 version_info = {
                     "auto_gptq": auto_gptq.__version__

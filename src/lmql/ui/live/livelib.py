@@ -25,7 +25,7 @@ class LiveApp:
             self.html = None
 
     def __repr__(self) -> str:
-        return "<LiveApp: {}>".format(self.name)
+        return f"<LiveApp: {self.name}>"
 
     @staticmethod
     def kill():

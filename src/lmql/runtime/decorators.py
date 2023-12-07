@@ -69,17 +69,13 @@ class LMQLDecoratorFunction(LMQLDecorator):
             r = self.post_fn(variable_value)
         else: # self.num_args >= 2
             r = self.post_fn(variable_value, prompt_value, context)
-        
+
         # If the decorator returns None, we don't want to change the value
         if r is None:
             return variable_value, prompt_value
 
         # If the decorator returns a tuple, we want to change both the variable and the prompt
-        if isinstance(r, tuple):
-            return r
-        else:
-            # otherwise, default to changing the variable and using str(r) in the prompt
-            return r, str(r)
+        return r if isinstance(r, tuple) else (r, str(r))
 
 def wrap(decorator):
     """
@@ -174,5 +170,4 @@ class streaming(LMQLDecorator):
     
     def stream(self, *args, **kwargs):
         r = self.decorator_fn(*args, **kwargs)
-        if r is None: return args[0]
-        else: return r
+        return args[0] if r is None else r

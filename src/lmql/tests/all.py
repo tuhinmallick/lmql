@@ -43,15 +43,11 @@ if __name__ == "__main__":
     THIS_DIR = os.path.dirname(__file__)
 
     # if you want to run only some targets, pass them as 'only' arguments, e.g. 'python all.py only openai'
-    if "only" in sys.argv:
-        targets = []
-    else:
-        targets = [THIS_DIR]
-
+    targets = [] if "only" in sys.argv else [THIS_DIR]
     # default is the explicit name for .
     if "default" in sys.argv:
         targets.append(THIS_DIR)
-    
+
     include_all_optional = "optional" in sys.argv
 
     optional_targets = os.listdir(os.path.join(THIS_DIR, "optional"))
@@ -60,11 +56,7 @@ if __name__ == "__main__":
 
     targets = sorted(set(targets + optional_targets))
 
-    exit_codes = []
-
-    for t in targets:
-        exit_codes += [run_tests(t)]
-    
+    exit_codes = [run_tests(t) for t in targets]
     if any(exit_codes):
         sys.exit(1)
     else:

@@ -20,8 +20,6 @@ def pre(variable):
 def stream(s, context):
     global decorator_log
     decorator_log.stream_input = s
-    # streams during generation of variable
-    pass
 
 def post(value):
     # postprocesses value of variable
